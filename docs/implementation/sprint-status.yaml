@@ -38,7 +38,7 @@ development_status:
   epic-1: in-progress
   1-1-overlay-scaffolding: done
   1-2-plugin-load-without-replacing-official-config: done
-  1-3-upgrade-playbook-and-smoke-test: review
+  1-3-upgrade-playbook-and-smoke-test: done
   epic-1-retrospective: optional
   epic-2: backlog
   2-1-models-and-migrations: backlog

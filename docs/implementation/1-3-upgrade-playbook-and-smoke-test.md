@@ -4,7 +4,7 @@ baseline_commit: 2dacd0899b2ad6d10eb2672a8a3e90d9fe6f0064
 
 # Story 1.3: Upgrade playbook and smoke test
 
-Status: review
+Status: done
 
 <!-- Ultimate context engine analysis completed - comprehensive developer guide created -->
 
@@ -44,6 +44,37 @@ so that bumping Official Taiga is a rehearsal, not an invention.
 - [x] Verify
   - [x] `python -m pytest -q` — 1.1 + 1.2 suites still green plus new tests
   - [x] Do not bump `platform/TAIGA_PIN`. Do not add models / REST / UI
+
+### Review Findings
+
+Code review 2026-08-17 (Blind Hunter + Edge Case Hunter + Acceptance Auditor). 1 decision (resolved → patch), 17 patches, 4 deferred, 8 dismissed.
+
+- [x] [Review][Patch] **Rollback does not undo migrations — say so (decision: forward-fix only)** — Step 1 mandates a dump "until smoke passes", but Rollback only removes the override and cycles compose, and official core `migrate` has already run on boot (step 5) by the time smoke fails. Operator decision 2026-08-17: a bump is **one-way** once core migrate has run. The dump is **disaster recovery, not a routine rollback**. Rollback stays override-removal only; the playbook must state that limitation plainly instead of implying the dump is a rollback path. [platform/UPGRADE.md:10-21, :135-145]
+
+- [x] [Review][Patch] Live smoke test is structurally unrunnable — probe and invocation both use `cwd=REPO`, which has no compose project, so it always skips and misreports the reason [tests/test_upgrade_playbook.py:32, :220]
+- [x] [Review][Patch] `$TAIGA_ADDONS_ROOT` / `$POSTGRES_USER` are compose `.env` keys, empty in the operator's shell — both headline commands fail as written [platform/UPGRADE.md:17, :96, :106-108; platform/README.md:48]
+- [x] [Review][Patch] `smoke.py` exits 0 on an empty slug list — a commented-out `addons.txt` turns the fail-closed gate green (verified: exit 0 with empty apps + empty conf) [platform/smoke.py:37-57, :167]
+- [x] [Review][Patch] `test_upgrade_playbook_forbids_overlay_compose_pull` asserts presence, not prohibition — a playbook instructing a blanket pull passes all three asserts [tests/test_upgrade_playbook.py:98-102]
+- [x] [Review][Patch] Known-broken seed pin not documented concretely — spec's own research says `taigaio/taiga-front:6.10.2` is a 404, so step 4 fails at the seed; playbook only hedges generically and omits the known shared tags [platform/UPGRADE.md:48-50]
+- [x] [Review][Patch] Every live failure reports "no running overlay" — a crash-looping back, broken `settings.overlay`, or compose v1 all take the environment-absent branch; also shares exit code 1 with a real check failure [platform/smoke.py:104-133]
+- [x] [Review][Patch] No `timeout=` on any `subprocess.run` — a hung daemon blocks the smoke and the suite indefinitely [platform/smoke.py:96-101; tests/test_upgrade_playbook.py:27-33, :216-221]
+- [x] [Review][Patch] Playbook has no wait between `up -d` and smoke — running it mid-migrate yields a false "no running overlay" [platform/UPGRADE.md:64-71, :89-97]
+- [x] [Review][Patch] Needle tests are whole-file substring scans (`"git" in lower`, OR-chains) with no ordering assertion — the anti-pattern deferred-work.md:9 records as resolved in 1.2 [tests/test_upgrade_playbook.py:69-80]
+- [x] [Review][Patch] Playbook never re-runs the 1.1 merge verification (`docker compose -f … config`) after `git pull` — an upstream service rename silently invalidates the override [platform/UPGRADE.md:23-36]
+- [x] [Review][Patch] `test_smoke_reuses_overlay_helpers_not_a_copy` is a source grep — a hand-rolled copy passes; `assert smoke.overlay is overlay` would be real [tests/test_upgrade_playbook.py:122-132]
+- [x] [Review][Patch] `check_contrib_plugins` coerces a non-list `contribPlugins` to `[]` — a corrupted `conf.json` is misdiagnosed as a missing plugin [platform/smoke.py:47-51]
+- [x] [Review][Patch] `pg_dump` line has no failure guard — the redirect creates the file even on failure, and `date +%Y%m%d` clobbers a same-day retry [platform/UPGRADE.md:15-18]
+- [x] [Review][Patch] Volume snapshot offered as an equal backup alternative without stopping the DB — not crash-consistent [platform/UPGRADE.md:20-21]
+- [x] [Review][Patch] No failure branch if `docker compose build` fails — playbook proceeds to `up -d` [platform/UPGRADE.md:64-71]
+- [x] [Review][Patch] `deferred-work.md` converts unmet 1.1 AC-4 into permanent prose with no owning story [docs/implementation/deferred-work.md:11]
+- [x] [Review][Patch] `README.md:30` "This story only ships the attach path" now contradicts the Upgrade section below it [platform/README.md:30]
+
+- [x] [Review][Defer] Live code path has no test seam — `_run_live` JSON parsing and the flag XOR guard are unreachable without Docker [platform/smoke.py:104-174] — deferred, spec explicitly accepted skipif honesty
+- [x] [Review][Defer] ASCII-apostrophe needle is brittle — `UPGRADE.md` mixes curly `’` (lines 4, 25, 57) with the ASCII `'` the test depends on [tests/test_upgrade_playbook.py:85] — deferred, pre-existing encoding mix
+- [x] [Review][Defer] `git pull --ff-only` has no stated precondition or recovery for a dirty/diverged `taiga-docker` checkout [platform/UPGRADE.md:28-33] — deferred, operator-environment concern
+- [x] [Review][Defer] Spec baseline says `tests/test_plugin_load.py` is "37 passed, 3 skipped"; it is 17 passed, 2 skipped both before and after this commit [docs/implementation/1-3-upgrade-playbook-and-smoke-test.md:190] — deferred, spec bookkeeping, nothing regressed
+
+**Dismissed (8):** `TAIGA_ADDONS_TXT` not consulted by smoke (AD-9 prescribes the resolution order and forbids the host reading `/opt`); stale extra `taiga_contrib_*` apps not detected (spec scoped the checks to exactly two); relative `TAIGA_ADDONS_ROOT`; `--addons-file ""`; `OSError` after `shutil.which`; compose warnings prefixing JSON (compose writes those to stderr); rollback `rm`-before-`down` ordering (service names come from official `docker-compose.yml`); per-story framing in README headings.
 
 ## Dev Notes
 
@@ -373,6 +404,7 @@ Grok 4.6 (bmad-dev-story)
 - Red: `tests/test_upgrade_playbook.py` against missing `UPGRADE.md` / `smoke.py` / README pointer. 13 failed, 1 skipped.
 - Green: `platform/UPGRADE.md` operator sequence; `platform/smoke.py` reuses `overlay` helpers; fixture mode for pytest; live `docker compose exec` path; README Upgrade section; deferred-work notes that smoke shipped.
 - Verify: `python -m pytest -q` → 50 passed, 4 skipped. Pin left at `6.10.2`. No models / REST / UI.
+- Post-review (2026-08-17): red tests for 18 [Patch] findings (15 failed); green playbook honesty + smoke fail-closed/env-vs-exec + compose-dir; full suite 64 passed, 4 skipped.
 
 ### Debug Log References
 
@@ -380,6 +412,8 @@ Grok 4.6 (bmad-dev-story)
 - GREEN: playbook needle wrap (`Official\nTaiga's`) failed once; put `core Taiga migrations are Official Taiga's` on one line
 - Full suite: `python -m pytest -q` → 50 passed, 4 skipped (`test_docker_compose_config_merges_when_docker_present`, `test_front_patch_script_mutates_fixture_conf`, `test_live_overlay_images_load_stub_when_docker_present`, `test_live_smoke_when_overlay_stack_running`)
 - Live `docker compose exec` was **not** executed — Docker absent. Fixture tests prove fail-closed. skipif is honest.
+- POST-REVIEW RED: 15 failed, 12 passed, 1 skipped (new playbook/smoke assertions against unpatched artifacts)
+- POST-REVIEW GREEN: `python -m pytest -q` → 64 passed, 4 skipped (same four live/Docker skips; no new skip class)
 
 ### Completion Notes List
 
@@ -390,6 +424,24 @@ Grok 4.6 (bmad-dev-story)
 - `platform/README.md` Upgrade section links `UPGRADE.md` and `python3 "$TAIGA_ADDONS_ROOT/platform/smoke.py"`. 1.1 README needles kept.
 - `platform/TAIGA_PIN` unchanged (`6.10.2`). No overlay / Dockerfile / compose / Addon domain changes.
 - Live smoke skipif — Docker absent. Recorded in deferred-work; fixture tests satisfy AC-2 fail-closed.
+- ✅ Resolved review finding [Patch]: rollback states dump is disaster recovery; bump is one-way once core migrate has run
+- ✅ Resolved review finding [Patch]: live probe uses `$TAIGA_DOCKER` / `--compose-dir`, not this repo as a compose project
+- ✅ Resolved review finding [Patch]: playbook/README source official `.env`; `pg_dump` expands `POSTGRES_USER` inside the db container
+- ✅ Resolved review finding [Patch]: empty `addons.txt` is fail-closed (exit 1)
+- ✅ Resolved review finding [Patch]: overlay `docker compose pull` asserted as prohibition, not mere presence
+- ✅ Resolved review finding [Patch]: seed `taiga-front:6.10.2` documented as Hub 404; shared tags listed
+- ✅ Resolved review finding [Patch]: live env missing = exit 2 "no running overlay"; unhealthy exec = exit 3 "overlay exec failed"; check fail = exit 1
+- ✅ Resolved review finding [Patch]: every `subprocess.run` (smoke + live probe) has `timeout=`
+- ✅ Resolved review finding [Patch]: rebuild uses `up -d --wait`; do not smoke mid-migrate
+- ✅ Resolved review finding [Patch]: operator sequence needles asserted in order
+- ✅ Resolved review finding [Patch]: step 2 re-runs `docker compose -f … config` after `git pull`
+- ✅ Resolved review finding [Patch]: `assert smoke.overlay is overlay` (not a source grep)
+- ✅ Resolved review finding [Patch]: non-list `contribPlugins` is "corrupted conf.json", not a missing plugin
+- ✅ Resolved review finding [Patch]: `pg_dump` second-precision stamp + `rm -f` on failure
+- ✅ Resolved review finding [Patch]: volume snapshot is not crash-consistent unless DB is stopped
+- ✅ Resolved review finding [Patch]: `docker compose build || exit 1` — do not `up -d` after a failed build
+- ✅ Resolved review finding [Patch]: 1.1 AC-4 automated login owned by `3-1-project-settings-catalog-ui`
+- ✅ Resolved review finding [Patch]: README no longer claims "this story only ships the attach path"
 
 ### File List
 
@@ -404,3 +456,5 @@ Grok 4.6 (bmad-dev-story)
 ### Change Log
 
 - 2026-08-17: Implemented upgrade playbook + fail-closed stub-load smoke. Status → review. Live Docker exec skipif (Docker absent).
+- 2026-08-17: Addressed code review findings - 18 items resolved (Date: 2026-08-17)
+- 2026-08-17: Marked done after review follow-ups.

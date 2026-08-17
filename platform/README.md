@@ -27,7 +27,7 @@ Overlay images are **local-only**. Do not run `docker compose pull` — `taiga-a
 
 What changes: `taiga-back` and `taiga-async` share image `taiga-addons-back:<pin>` (`FROM taigaio/taiga-back:<pin>`). `taiga-front` becomes `taiga-addons-front:<pin>`. Gateway, Postgres, events, and protected stay official.
 
-Login to Taiga on a healthy stack is an operator UI glance (see `UPGRADE.md`). This story only ships the attach path.
+Login to Taiga on a healthy stack is an operator UI glance (see `UPGRADE.md`).
 
 ## Plugin load (append, do not replace)
 
@@ -42,9 +42,12 @@ Stub Addon **components** ships as importable `taiga_contrib_components` plus `/
 
 ## Upgrade
 
-Rehearse a pin bump in [`UPGRADE.md`](UPGRADE.md). After `docker compose up -d`, run the stub-load smoke from official `taiga-docker/`:
+Rehearse a pin bump in [`UPGRADE.md`](UPGRADE.md). After `docker compose up -d`, run the stub-load smoke from official `taiga-docker/`. `TAIGA_ADDONS_ROOT` is a compose `.env` key — source it first or the path is empty:
 
 ```bash
+set -a
+. ./.env
+set +a
 python3 "$TAIGA_ADDONS_ROOT/platform/smoke.py"
 ```
 

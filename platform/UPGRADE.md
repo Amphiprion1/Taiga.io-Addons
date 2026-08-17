@@ -7,18 +7,44 @@ two overlay images from one explicit pin. **core Taiga migrations are Official T
 Do not volume-map a full `config.py` or `conf.json`. Append-not-replace stays
 in force (AD-3).
 
+`TAIGA_ADDONS_ROOT` and `POSTGRES_USER` live in official `taiga-docker/.env`.
+They are empty in a bare shell. From that directory, load them before any
+command that expands those variables on the host:
+
+```bash
+set -a
+. ./.env
+set +a
+```
+
 ## 1. Backup the database
 
 Do this first. User and database names come from official `.env`
 (`POSTGRES_USER`, typically `taiga`). Do not invent a second database.
+Expand `POSTGRES_USER` **inside** the db container — a host `$POSTGRES_USER`
+is empty unless you sourced `.env`.
 
 ```bash
 # from official taiga-docker/
-docker compose exec -T taiga-db pg_dump -U "$POSTGRES_USER" taiga > "taiga-backup-$(date +%Y%m%d).sql"
+set -euo pipefail
+outfile="taiga-backup-$(date +%Y%m%d%H%M%S).sql"
+if ! docker compose exec -T taiga-db sh -c 'pg_dump -U "$POSTGRES_USER" taiga' > "$outfile"; then
+  rm -f "$outfile"
+  echo "pg_dump failed; aborting. Do not continue without a good dump." >&2
+  exit 1
+fi
 ```
 
-A Postgres volume snapshot is also acceptable. Keep the dump until smoke
-passes.
+The second-precision stamp avoids clobbering a same-day retry. The `if !`
+plus `rm -f` drops a truncated file if `pg_dump` fails — a bare `>` redirect
+would leave that file looking like a dump.
+
+A Postgres volume snapshot is **not** an equal alternative while the DB is
+running: it is **not crash-consistent**. Only snapshot after
+`docker compose stop taiga-db` (or the whole stack). Prefer `pg_dump`.
+
+Keep the dump until smoke passes. It is disaster recovery, not a rollback
+button — see Rollback.
 
 ## 2. Pull official compose updates
 
@@ -30,7 +56,12 @@ cd /path/to/taiga-docker
 git fetch origin
 git checkout stable
 git pull --ff-only origin stable
+docker compose -f docker-compose.yml -f docker-compose.override.yml config
 ```
+
+Re-run that 1.1 merge verification after every `git pull`. An upstream
+service rename silently invalidates the override; `config` fails closed
+before you bump the pin.
 
 **Do not** `git reset --hard`. Official 6.6 migration docs use that; it would
 wipe the overlay override and your `.env`.
@@ -47,7 +78,10 @@ Before bumping, confirm **both** Hub tags exist:
 
 If either 404s, pick a shared tag that exists on both (do not split pins).
 The seed in this repo is `6.10.2`; that is a declared pin, not a promise that
-both Hub tags always exist.
+both Hub tags always exist. Concretely, **`taigaio/taiga-front:6.10.2` is a
+404** on Hub today (verified 2026-08-17). Shared tags that exist on both
+images include `6.9.0`, `6.8.2`, `6.8.1`, `6.7.1`, `6.7.0`, `6.6.0`. Building
+the seed as-is will fail at the front `FROM` until you choose a shared tag.
 
 Set the **same** explicit tag on:
 
@@ -66,9 +100,19 @@ This story does not bump the seed. When *you* bump, it is an explicit commit.
 From official `taiga-docker/` (compose project directory):
 
 ```bash
-docker compose build
-docker compose up -d
+set -euo pipefail
+docker compose build || exit 1
+docker compose up -d --wait
 ```
+
+If `docker compose build` fails, **stop**. Do not `up -d` the previous
+overlay images against a half-bumped pin.
+
+`--wait` blocks until compose healthchecks pass. Official entrypoint
+`migrate` runs on boot during this wait. Do not smoke mid-migrate — a
+partial boot looks like "no running overlay". If your compose is too old
+for `--wait`, retry `docker compose exec -T taiga-back true` with `sleep 5`
+until it succeeds (or give up after ~5 minutes).
 
 **Do not** `docker compose pull` overlay images. `taiga-addons-back` and
 `taiga-addons-front` are local-only (`pull_policy: never`). `taiga-async`
@@ -86,13 +130,19 @@ then `loaddata`, then gunicorn. Overlay apps are in `INSTALLED_APPS` via
 `taiga-async` does **not** migrate (official async entrypoint is Celery only).
 Migrate stays on the API container.
 
+Once that migrate has run, the bump is one-way for schema. See Rollback.
+
 ## 6. Smoke
 
 ### Automated stub load (now)
 
-From official `taiga-docker/` so compose finds the project:
+From official `taiga-docker/` so compose finds the project. Source `.env`
+first (`TAIGA_ADDONS_ROOT` is a compose key, not a login-shell variable):
 
 ```bash
+set -a
+. ./.env
+set +a
 python3 "$TAIGA_ADDONS_ROOT/platform/smoke.py"
 ```
 
@@ -133,6 +183,12 @@ record the fact **in this same `UPGRADE.md`**. Do not start that rebuild from
 this playbook.
 
 ## Rollback
+
+A pin bump is **one-way** once official core `migrate` has run (step 5, on
+boot). The commands below only remove the overlay override and cycle official
+images. They **do not undo** core or Addon migrations. The dump from step 1
+is **disaster recovery, not a routine rollback**. Restore from that dump only
+if you must recover the pre-bump database.
 
 ```bash
 cd /path/to/taiga-docker
