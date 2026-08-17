@@ -1,0 +1,33 @@
+# Drop this file next to official taiga-docker/docker-compose.yml.
+# Does not edit official compose. Overrides only back, async, and front.
+#
+# Required:
+#   export TAIGA_ADDONS_ROOT=/absolute/path/to/Taiga.io-addons
+# Optional (defaults to 6.10.2, same as platform/TAIGA_PIN):
+#   export TAIGA_PIN=6.10.2
+#
+# Then from the official taiga-docker directory:
+#   docker compose build
+#   docker compose up -d
+
+version: "3.5"
+
+services:
+  taiga-back:
+    image: taiga-addons-back:${TAIGA_PIN:-6.10.2}
+    build:
+      context: ${TAIGA_ADDONS_ROOT:?Set TAIGA_ADDONS_ROOT to this repo root}
+      dockerfile: platform/back.Dockerfile
+      args:
+        TAIGA_PIN: ${TAIGA_PIN:-6.10.2}
+
+  taiga-async:
+    image: taiga-addons-back:${TAIGA_PIN:-6.10.2}
+
+  taiga-front:
+    image: taiga-addons-front:${TAIGA_PIN:-6.10.2}
+    build:
+      context: ${TAIGA_ADDONS_ROOT:?Set TAIGA_ADDONS_ROOT to this repo root}
+      dockerfile: platform/front.Dockerfile
+      args:
+        TAIGA_PIN: ${TAIGA_PIN:-6.10.2}
