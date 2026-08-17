@@ -4,7 +4,7 @@ baseline_commit: ab0f10d3dbd7360ad87198ace1581a0eeab6325a
 
 # Story 1.2: Plugin load without replacing official config
 
-Status: review
+Status: done
 
 <!-- Ultimate context engine analysis completed - comprehensive developer guide created -->
 
@@ -53,20 +53,20 @@ so that my existing `.env` URLs and flags keep working.
 
 Code review 2026-08-17 — 3 layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor).
 
-- [ ] [Review][Patch] **`addons.txt` is a half-registry — Dockerfiles hardcode the `components` slug (AD-9)** [platform/back.Dockerfile, platform/front.Dockerfile] — `back.Dockerfile` COPYs `addons/components/back/taiga_contrib_components` and `front.Dockerfile` COPYs `addons/components/front/` by literal path. Adding a second slug to `platform/addons.txt` appends `taiga_contrib_<slug>` to `INSTALLED_APPS` for a package never copied into the image → `ModuleNotFoundError` at settings import in **both** `taiga-back` and `taiga-async`, plus a `contribPlugins` entry pointing at a 404. AD-9 says one Addon = tree + **one line** in `addons.txt`. **Decision (Forza, 2026-08-17): option (a) — generalize now.** COPY the whole `addons/` tree and fan out per enabled slug at build time so `addons.txt` is genuinely the single enable switch.
+- [x] [Review][Patch] **`addons.txt` is a half-registry — Dockerfiles hardcode the `components` slug (AD-9)** [platform/back.Dockerfile, platform/front.Dockerfile] — `back.Dockerfile` COPYs `addons/components/back/taiga_contrib_components` and `front.Dockerfile` COPYs `addons/components/front/` by literal path. Adding a second slug to `platform/addons.txt` appends `taiga_contrib_<slug>` to `INSTALLED_APPS` for a package never copied into the image → `ModuleNotFoundError` at settings import in **both** `taiga-back` and `taiga-async`, plus a `contribPlugins` entry pointing at a 404. AD-9 says one Addon = tree + **one line** in `addons.txt`. **Decision (Forza, 2026-08-17): option (a) — generalize now.** COPY the whole `addons/` tree and fan out per enabled slug at build time so `addons.txt` is genuinely the single enable switch.
 
-- [ ] [Review][Patch] **`mktemp` + `mv` leaves `conf.json` mode 0600 root-owned — nginx workers get 403 and the front never boots** [platform/patch-front-conf.sh]
-- [ ] [Review][Patch] **`jq unique` sorts, reordering official `contribPlugins`; the script's own test asserts the opposite order and is red on any machine with `jq`** [platform/patch-front-conf.sh + tests/test_plugin_load.py::test_front_patch_script_mutates_fixture_conf]
-- [ ] [Review][Patch] **No `.gitattributes` with `core.autocrlf=true` — new `.sh` files get CRLF on checkout, breaking `#!/bin/sh` in-container** [.gitattributes (missing), platform/patch-front-conf.sh, platform/entrypoint-back.sh]
-- [ ] [Review][Patch] **The only *passing* front-patch test models a Python re-implementation whose semantics differ from the shipped script** [tests/test_plugin_load.py::_append_contrib_plugins] — same anti-pattern 1.1 rejected for the fake compose merge; Completion Notes overstate it as proof.
-- [ ] [Review][Patch] **`overlay.py` fails open: `if __name__ == "settings.overlay"` makes the star-import a silent no-op under any other module name** [platform/overlay.py]
-- [ ] [Review][Patch] **Reworked override test narrowed too far — only inspects `volumes`, so a `command`/`environment` setting `DJANGO_SETTINGS_MODULE=settings.config` would disable every addon and still pass** [tests/test_overlay_scaffolding.py::test_override_does_not_replace_official_config_files]
-- [ ] [Review][Patch] **Slug values are never validated before flowing into a Python import path and a filesystem path** [platform/overlay.py, platform/patch-front-conf.sh]
-- [ ] [Review][Patch] **Vacuous assertion — right-hand side of the `or` is always true** [tests/test_plugin_load.py:117]
-- [ ] [Review][Patch] **`entrypoint-back.sh` is COPYed + chmod'ed into the image but never referenced — dead artifact that re-invites the AD-4 trap** [platform/back.Dockerfile]
-- [ ] [Review][Patch] **Brittle substring asserts (`"models"`/`"url" not in apps_src.lower()`) — the anti-pattern the ledger just retired** [tests/test_plugin_load.py:163-164]
-- [ ] [Review][Patch] **Test deletes every `settings*` entry from `sys.modules` without restoring — order-dependent failures** [tests/test_plugin_load.py:83-86]
-- [ ] [Review][Patch] **Missing `addons.txt` raises a bare `FileNotFoundError` at Django settings import with no diagnostic** [platform/overlay.py]
+- [x] [Review][Patch] **`mktemp` + `mv` leaves `conf.json` mode 0600 root-owned — nginx workers get 403 and the front never boots** [platform/patch-front-conf.sh]
+- [x] [Review][Patch] **`jq unique` sorts, reordering official `contribPlugins`; the script's own test asserts the opposite order and is red on any machine with `jq`** [platform/patch-front-conf.sh + tests/test_plugin_load.py::test_front_patch_script_mutates_fixture_conf]
+- [x] [Review][Patch] **No `.gitattributes` with `core.autocrlf=true` — new `.sh` files get CRLF on checkout, breaking `#!/bin/sh` in-container** [.gitattributes (missing), platform/patch-front-conf.sh, platform/entrypoint-back.sh]
+- [x] [Review][Patch] **The only *passing* front-patch test models a Python re-implementation whose semantics differ from the shipped script** [tests/test_plugin_load.py::_append_contrib_plugins] — same anti-pattern 1.1 rejected for the fake compose merge; Completion Notes overstate it as proof.
+- [x] [Review][Patch] **`overlay.py` fails open: `if __name__ == "settings.overlay"` makes the star-import a silent no-op under any other module name** [platform/overlay.py]
+- [x] [Review][Patch] **Reworked override test narrowed too far — only inspects `volumes`, so a `command`/`environment` setting `DJANGO_SETTINGS_MODULE=settings.config` would disable every addon and still pass** [tests/test_overlay_scaffolding.py::test_override_does_not_replace_official_config_files]
+- [x] [Review][Patch] **Slug values are never validated before flowing into a Python import path and a filesystem path** [platform/overlay.py, platform/patch-front-conf.sh]
+- [x] [Review][Patch] **Vacuous assertion — right-hand side of the `or` is always true** [tests/test_plugin_load.py:117]
+- [x] [Review][Patch] **`entrypoint-back.sh` is COPYed + chmod'ed into the image but never referenced — dead artifact that re-invites the AD-4 trap** [platform/back.Dockerfile]
+- [x] [Review][Patch] **Brittle substring asserts (`"models"`/`"url" not in apps_src.lower()`) — the anti-pattern the ledger just retired** [tests/test_plugin_load.py:163-164]
+- [x] [Review][Patch] **Test deletes every `settings*` entry from `sys.modules` without restoring — order-dependent failures** [tests/test_plugin_load.py:83-86]
+- [x] [Review][Patch] **Missing `addons.txt` raises a bare `FileNotFoundError` at Django settings import with no diagnostic** [platform/overlay.py]
 
 - [x] [Review][Defer] **`apk add --no-cache jq` is unpinned and adds a build-time network dependency** [platform/front.Dockerfile] — deferred, pre-existing tension with pin discipline
 
@@ -362,6 +362,7 @@ Grok 4.6 (bmad-dev-story)
 - Red: `tests/test_plugin_load.py` plus reworked 1.1 override/placeholder asserts. 12 failed, 19 passed, 3 skipped.
 - Green: `addons.txt` + stub Django app + stub plugin; `settings.overlay` star-imports official `config` then appends; back Dockerfile COPY/ENV (official ENTRYPOINT left); front `40_` hook + `apk add jq`; README append-not-replace.
 - Verify: `python -m pytest -q` → 31 passed, 3 skipped (no Docker, no jq). Live AC-3 inspect not executed.
+- Review follow-up (2026-08-17): red tests for 13 [Patch] findings (12 failed). Green: AD-9 whole-tree COPY + `install-enabled-addons.sh` fan-out; overlay fail-closed; slug validation; front hook order-preserving dedup + in-place overwrite; `.gitattributes` LF; drop dead `entrypoint-back.sh` image COPY; tighten tests (no Python reimplementation of the front script). Full suite 37 passed, 3 skipped.
 
 ### Debug Log References
 
@@ -369,26 +370,43 @@ Grok 4.6 (bmad-dev-story)
 - GREEN: 31 passed, 3 skipped (`test_docker_compose_config_merges_when_docker_present`, `test_front_patch_script_mutates_fixture_conf`, `test_live_overlay_images_load_stub_when_docker_present`)
 - Full suite: `python -m pytest -q` → 31 passed, 3 skipped
 - Live container inspect skipped honestly — Docker absent. Recorded in deferred-work for 1.3.
+- Review follow-up RED: 12 failed, 25 passed, 3 skipped (findings not yet patched).
+- Review follow-up GREEN: `python -m pytest -q` → 37 passed, 3 skipped (`test_docker_compose_config_merges_when_docker_present`, `test_front_patch_script_mutates_fixture_conf` no jq, `test_live_overlay_images_load_stub_when_docker_present`). Git `sh` used for install/patch script tests.
 
 ### Completion Notes List
 
 - Append-not-replace: official `config.py` / `conf.json` are never copied or volume-mapped. Override YAML is still image-swap only.
 - Back: `DJANGO_SETTINGS_MODULE=settings.overlay` baked into the image. Overlay does `from .config import *` then appends `taiga_contrib_<slug>` from `/opt/taiga-addons/addons.txt`. Official ENTRYPOINT left so `taiga-async` compose entrypoint is untouched; both processes share the same image/settings.
 - `platform/entrypoint-back.sh` is a thin `exec` of official `/taiga-back/docker/entrypoint.sh` (spine). Not installed as image ENTRYPOINT.
-- Front: `apk add jq`; official `30_` stays; `40_patch-front-conf.sh` unique-appends `plugins/<slug>/<slug>.json`. Fixture test proves URLs unchanged and restart is idempotent; live `jq` script run skipped (no `jq` on host).
+- Front: `apk add jq`; official `30_` stays; `40_patch-front-conf.sh` appends `plugins/<slug>/<slug>.json` with order-preserving dedup (`reduce`/`index`, not `jq unique`) and in-place `cat` overwrite so `conf.json` keeps nginx mode/owner. Shipped-script run still `skipif` no `jq` — Python helper is not treated as proof of the script.
 - Stub `taiga_contrib_components` is importable with `PYTHONPATH=addons/components/back`. Front module is `taigaContrib.components` (not `taigaComponents`).
-- 1.1 `test_override_does_not_replace_official_config_files` now checks volumes / async entrypoint, not a whole-file substring ban.
+- 1.1 `test_override_does_not_replace_official_config_files` now checks volumes, async entrypoint/command, and `environment`/`command`/`entrypoint` so a reset to `DJANGO_SETTINGS_MODULE=settings.config` cannot hide.
 - AC-3 live inspect not executed — no Docker. Static tests only. Same honesty as 1.1 → 1.3.
+- ✅ Resolved review finding [High]: `addons.txt` is the single enable switch — Dockerfiles `COPY addons` and `install-enabled-addons.sh` fans out enabled slugs at build.
+- ✅ Resolved review finding [High]: `mktemp` no longer `mv`s a 0600 file over `conf.json`; contents are overwritten in place.
+- ✅ Resolved review finding [High]: front hook no longer uses `jq unique` (sort); order-preserving dedup.
+- ✅ Resolved review finding [High]: `.gitattributes` forces `*.sh text eol=lf`.
+- ✅ Resolved review finding [High]: removed Python reimplementation as proof of `patch-front-conf.sh`.
+- ✅ Resolved review finding [High]: overlay fails closed unless imported as the helper module `overlay`.
+- ✅ Resolved review finding [Med]: override test inspects environment/command/entrypoint for `settings.config`.
+- ✅ Resolved review finding [Med]: slugs validated (`^[a-z][a-z0-9_]*$`) in overlay + both shell scripts.
+- ✅ Resolved review finding [Med]: vacuous `config.py` assertion removed.
+- ✅ Resolved review finding [Med]: `entrypoint-back.sh` is no longer COPYed into the image (spine file kept in repo).
+- ✅ Resolved review finding [Low]: stub AppConfig checked via AST + no `models.py`/`urls.py`.
+- ✅ Resolved review finding [Low]: settings module cache restored after overlay import test.
+- ✅ Resolved review finding [Low]: missing `addons.txt` raises `FileNotFoundError` with a diagnostic.
 
 ### File List
 
 - platform/addons.txt
 - platform/overlay.py
 - platform/entrypoint-back.sh
+- platform/install-enabled-addons.sh
 - platform/patch-front-conf.sh
 - platform/back.Dockerfile
 - platform/front.Dockerfile
 - platform/README.md
+- .gitattributes
 - addons/components/back/taiga_contrib_components/__init__.py
 - addons/components/back/taiga_contrib_components/apps.py
 - addons/components/front/components.json
@@ -404,3 +422,5 @@ Grok 4.6 (bmad-dev-story)
 ### Change Log
 
 - 2026-08-17: Implemented plugin load (addons.txt, settings.overlay, front 40_ hook, stub Addon). Status → review. Live Docker inspect deferred to 1.3.
+- 2026-08-17: Addressed code review findings — 13 items resolved. Status → review.
+- 2026-08-17: Marked done after review follow-ups.

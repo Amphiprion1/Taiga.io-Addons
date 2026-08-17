@@ -8,9 +8,11 @@ FROM taigaio/taiga-back:${TAIGA_PIN}
 ARG TAIGA_PIN
 
 # Append-only: official /taiga-back/settings/config.py is not overwritten.
+# Whole addons/ tree + addons.txt; build fans out enabled slugs (AD-9).
 COPY platform/addons.txt /opt/taiga-addons/addons.txt
-COPY addons/components/back/taiga_contrib_components /taiga-back/taiga_contrib_components
+COPY addons /opt/taiga-addons/src
 COPY platform/overlay.py /taiga-back/settings/overlay.py
-COPY platform/entrypoint-back.sh /opt/taiga-addons/entrypoint-back.sh
-RUN chmod +x /opt/taiga-addons/entrypoint-back.sh
+COPY platform/install-enabled-addons.sh /opt/taiga-addons/install-enabled-addons.sh
+RUN chmod +x /opt/taiga-addons/install-enabled-addons.sh \
+    && /opt/taiga-addons/install-enabled-addons.sh back
 ENV DJANGO_SETTINGS_MODULE=settings.overlay

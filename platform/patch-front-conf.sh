@@ -17,13 +17,21 @@ fi
 extra="[]"
 while IFS= read -r raw || [ -n "$raw" ]; do
     line=${raw%%#*}
-    line=$(printf '%s\n' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    line=$(printf '%s\n' "$line" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     [ -z "$line" ] && continue
+    printf '%s\n' "$line" | grep -Eq '^[a-z][a-z0-9_]*$' || {
+        echo "patch-front-conf: invalid slug: $line" >&2
+        exit 1
+    }
     extra=$(printf '%s\n' "$extra" | jq --arg p "plugins/${line}/${line}.json" '. + [$p]')
 done < "$ADDONS"
 
 tmp=$(mktemp)
+# Dedup via reduce+index (jq's sort-unique reorders official plugins).
+# index($x) != null: jq treats 0 as false, so a hit at position 0 must not append.
 jq --argjson extra "$extra" \
-    '.contribPlugins = ((.contribPlugins // []) + $extra | unique)' \
+    '.contribPlugins = ((.contribPlugins // []) + $extra | reduce .[] as $x ([]; if index($x) != null then . else . + [$x] end))' \
     "$CONF" > "$tmp"
-mv "$tmp" "$CONF"
+# Overwrite in place so nginx's original mode/owner stay (mktemp is 0600).
+cat "$tmp" > "$CONF"
+rm -f "$tmp"

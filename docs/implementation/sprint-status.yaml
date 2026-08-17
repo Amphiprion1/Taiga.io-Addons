@@ -37,7 +37,7 @@ story_location: docs/implementation
 development_status:
   epic-1: in-progress
   1-1-overlay-scaffolding: done
-  1-2-plugin-load-without-replacing-official-config: review
+  1-2-plugin-load-without-replacing-official-config: done
   1-3-upgrade-playbook-and-smoke-test: backlog
   epic-1-retrospective: optional
   epic-2: backlog

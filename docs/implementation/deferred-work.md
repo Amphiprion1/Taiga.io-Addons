@@ -17,3 +17,5 @@
 ## Deferred from: code review of 1-2-plugin-load-without-replacing-official-config (2026-08-17)
 
 - **`apk add --no-cache jq` is unpinned.** `platform/front.Dockerfile` installs `jq` from whatever version Alpine's repo serves at build time, and adds a network dependency to every front build. This sits in tension with the pin discipline story 1.1 established for `TAIGA_PIN` (no `:latest`, single declared seed). Deferred because pinning an Alpine package version is itself fragile — pinned versions age out of the repo and break builds harder than a floating `jq` does. Revisit if front builds ever need to be byte-reproducible. [platform/front.Dockerfile]
+
+Thirteen [Patch] review findings from the same review were resolved in the 2026-08-17 follow-up (AD-9 fan-out, `conf.json` mode, order-preserving plugin append, `.gitattributes`, overlay fail-closed, slug validation, test honesty). See the story file Change Log.

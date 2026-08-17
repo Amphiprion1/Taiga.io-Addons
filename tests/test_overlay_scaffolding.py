@@ -145,20 +145,38 @@ def test_override_does_not_pull_local_overlay_images():
         assert services[name].get("pull_policy") == "never", name
 
 
+def _stringify_override_field(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return yaml.safe_dump(value)
+
+
 def test_override_does_not_replace_official_config_files():
     """No volume-map of official config files; async entrypoint stays official.
 
     Dockerfiles and comments may mention config.py / INSTALLED_APPS; the
-    forbidden act is a compose volume (or async entrypoint/command) that
-    replaces official env-driven files.
+    forbidden act is a compose volume, command, or environment that
+    replaces official env-driven files or disables the baked overlay.
     """
     services = _load_override()["services"]
     forbidden_mounts = ("config.py", "conf.json")
+    disable_overlay = re.compile(
+        r"DJANGO_SETTINGS_MODULE\s*[:=]\s*['\"]?settings\.config\b"
+    )
     for name, svc in services.items():
         for vol in svc.get("volumes") or []:
             text = vol if isinstance(vol, str) else yaml.safe_dump(vol)
             for needle in forbidden_mounts:
                 assert needle not in text, f"{name} volume maps {needle}"
+        runtime = " ".join(
+            _stringify_override_field(svc.get(key))
+            for key in ("environment", "command", "entrypoint")
+        )
+        assert disable_overlay.search(runtime) is None, (
+            f"{name} resets DJANGO_SETTINGS_MODULE to settings.config"
+        )
         if name == "taiga-async":
             assert "entrypoint" not in svc
             assert "command" not in svc

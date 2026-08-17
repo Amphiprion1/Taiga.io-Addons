@@ -1,0 +1,2 @@
+# Official images are Linux. CRLF shebangs fail with "not found".
+*.sh text eol=lf
