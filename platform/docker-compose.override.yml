@@ -1,20 +1,24 @@
 # Drop this file next to official taiga-docker/docker-compose.yml.
 # Does not edit official compose. Overrides only back, async, and front.
 #
-# Required:
-#   export TAIGA_ADDONS_ROOT=/absolute/path/to/Taiga.io-addons
-# Optional (defaults to 6.10.2, same as platform/TAIGA_PIN):
-#   export TAIGA_PIN=6.10.2
+# Put these in official taiga-docker/.env (Compose loads it automatically):
+#   TAIGA_ADDONS_ROOT=/absolute/path/to/Taiga.io-addons
+#   TAIGA_PIN=6.10.2   # optional; default matches platform/TAIGA_PIN
 #
-# Then from the official taiga-docker directory:
+# Overlay images are local-only. Do not `docker compose pull` — there is no
+# registry copy of taiga-addons-back / taiga-addons-front. Build first:
 #   docker compose build
 #   docker compose up -d
+#
+# taiga-async reuses the taiga-back image (no separate build). pull_policy:
+# never stops Compose from trying to pull that local tag from a registry.
 
 version: "3.5"
 
 services:
   taiga-back:
     image: taiga-addons-back:${TAIGA_PIN:-6.10.2}
+    pull_policy: never
     build:
       context: ${TAIGA_ADDONS_ROOT:?Set TAIGA_ADDONS_ROOT to this repo root}
       dockerfile: platform/back.Dockerfile
@@ -23,9 +27,11 @@ services:
 
   taiga-async:
     image: taiga-addons-back:${TAIGA_PIN:-6.10.2}
+    pull_policy: never
 
   taiga-front:
     image: taiga-addons-front:${TAIGA_PIN:-6.10.2}
+    pull_policy: never
     build:
       context: ${TAIGA_ADDONS_ROOT:?Set TAIGA_ADDONS_ROOT to this repo root}
       dockerfile: platform/front.Dockerfile

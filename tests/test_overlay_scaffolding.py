@@ -18,41 +18,69 @@ BACK_DF = PLATFORM / "back.Dockerfile"
 FRONT_DF = PLATFORM / "front.Dockerfile"
 OVERRIDE = PLATFORM / "docker-compose.override.yml"
 README = PLATFORM / "README.md"
-SEED_PIN = "6.10.2"
+ENV_EXAMPLE = PLATFORM / "compose.env.example"
+DOCKERIGNORE = REPO / ".dockerignore"
+DEV_REQUIREMENTS = REPO / "requirements-dev.txt"
+
+PIN_DEFAULT_RE = re.compile(r"\$\{TAIGA_PIN:-([^}]+)\}")
+OFFICIAL_ONLY_SERVICES = {
+    "taiga-db",
+    "taiga-events",
+    "taiga-protected",
+    "taiga-gateway",
+}
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _declared_pin() -> str:
+    pin = _read(PIN_FILE).strip()
+    assert pin, "platform/TAIGA_PIN must declare a tag"
+    assert pin != "latest"
+    assert ":" not in pin
+    assert "\n" not in pin
+    return pin
+
+
 def test_taiga_pin_is_single_declared_seed():
     assert PIN_FILE.is_file(), "platform/TAIGA_PIN must exist"
-    pin = PIN_FILE.read_text(encoding="utf-8").strip()
-    assert pin == SEED_PIN
-    assert "\n" not in PIN_FILE.read_text(encoding="utf-8").strip()
+    pin = _declared_pin()
+    assert pin in _read(README)
 
 
 def test_back_dockerfile_from_pinned_official_image():
+    pin = _declared_pin()
     text = _read(BACK_DF)
-    assert re.search(r"^ARG TAIGA_PIN=", text, re.M)
-    assert f"ARG TAIGA_PIN={SEED_PIN}" in text or f'ARG TAIGA_PIN="{SEED_PIN}"' in text
+    assert f"ARG TAIGA_PIN={pin}" in text or f'ARG TAIGA_PIN="{pin}"' in text
     assert re.search(r"^FROM taigaio/taiga-back:\$\{TAIGA_PIN\}", text, re.M)
     assert ":latest" not in text
 
 
 def test_front_dockerfile_from_pinned_official_image():
+    pin = _declared_pin()
     text = _read(FRONT_DF)
-    assert re.search(r"^ARG TAIGA_PIN=", text, re.M)
-    assert f"ARG TAIGA_PIN={SEED_PIN}" in text or f'ARG TAIGA_PIN="{SEED_PIN}"' in text
+    assert f"ARG TAIGA_PIN={pin}" in text or f'ARG TAIGA_PIN="{pin}"' in text
     assert re.search(r"^FROM taigaio/taiga-front:\$\{TAIGA_PIN\}", text, re.M)
     assert ":latest" not in text
 
 
 def test_dockerfiles_share_pin_file_value():
-    pin = PIN_FILE.read_text(encoding="utf-8").strip()
+    pin = _declared_pin()
     for path in (BACK_DF, FRONT_DF):
         text = _read(path)
         assert f"ARG TAIGA_PIN={pin}" in text or f'ARG TAIGA_PIN="{pin}"' in text
+
+
+def test_dockerfiles_redeclare_arg_after_from():
+    for path in (BACK_DF, FRONT_DF):
+        text = _read(path)
+        parts = re.split(r"^FROM .+$", text, maxsplit=1, flags=re.M)
+        assert len(parts) == 2, f"{path.name} must have a FROM line"
+        assert re.search(r"^ARG TAIGA_PIN\b", parts[1], re.M), (
+            f"{path.name} must redeclare ARG TAIGA_PIN after FROM"
+        )
 
 
 def _load_override():
@@ -61,10 +89,23 @@ def _load_override():
     return data
 
 
+def test_override_defaults_match_pin_file():
+    pin = _declared_pin()
+    defaults = PIN_DEFAULT_RE.findall(_read(OVERRIDE))
+    assert defaults, "override must provide ${TAIGA_PIN:-<pin>} defaults"
+    assert set(defaults) == {pin}
+
+
 def test_override_only_swaps_back_async_front():
     data = _load_override()
     services = data["services"]
     assert set(services) == {"taiga-back", "taiga-async", "taiga-front"}
+
+
+def test_override_omits_official_only_services():
+    """Override must not declare official-only services; compose leaves them as-is."""
+    services = set(_load_override()["services"])
+    assert services.isdisjoint(OFFICIAL_ONLY_SERVICES)
 
 
 def test_override_back_and_async_use_same_image():
@@ -86,14 +127,22 @@ def test_override_front_uses_distinct_overlay_image():
 
 def test_override_build_context_is_addons_root():
     services = _load_override()["services"]
-    for name in ("taiga-back", "taiga-front"):
+    expected = {
+        "taiga-back": "platform/back.Dockerfile",
+        "taiga-front": "platform/front.Dockerfile",
+    }
+    for name, dockerfile in expected.items():
         build = services[name]["build"]
         assert "TAIGA_ADDONS_ROOT" in build["context"]
-        assert build["dockerfile"].replace("\\", "/") in {
-            "platform/back.Dockerfile" if name == "taiga-back" else "platform/front.Dockerfile"
-        }
+        assert build["dockerfile"].replace("\\", "/") == dockerfile
         assert "TAIGA_PIN" in str(build.get("args", {}))
     assert "build" not in services["taiga-async"]
+
+
+def test_override_does_not_pull_local_overlay_images():
+    services = _load_override()["services"]
+    for name in ("taiga-back", "taiga-async", "taiga-front"):
+        assert services[name].get("pull_policy") == "never", name
 
 
 def test_override_does_not_replace_official_config_files():
@@ -122,51 +171,44 @@ def test_addon_tree_placeholders_exist():
 
 
 def test_readme_documents_attach_and_pin():
+    pin = _declared_pin()
     text = _read(README)
     for needle in (
         "TAIGA_ADDONS_ROOT",
         "TAIGA_PIN",
         "docker-compose.override.yml",
         "docker compose",
-        "6.10.2",
+        pin,
+        ".env",
+        "docker compose down",
+        "-f docker-compose.yml -f docker-compose.override.yml config",
+        "docker compose pull",
     ):
         assert needle in text, f"README missing {needle!r}"
 
 
-def test_static_merge_keeps_official_services():
-    """Simulate compose merge: override must not drop gateway/db/events."""
-    official = {
-        "version": "3.5",
-        "services": {
-            "taiga-db": {"image": "postgres:12.3"},
-            "taiga-back": {"image": "taigaio/taiga-back:latest"},
-            "taiga-async": {
-                "image": "taigaio/taiga-back:latest",
-                "entrypoint": ["/taiga-back/docker/async_entrypoint.sh"],
-            },
-            "taiga-front": {"image": "taigaio/taiga-front:latest"},
-            "taiga-events": {"image": "taigaio/taiga-events:latest"},
-            "taiga-protected": {"image": "taigaio/taiga-protected:latest"},
-            "taiga-gateway": {"image": "nginx:1.19-alpine"},
-        },
-    }
-    override = _load_override()
-    merged = {**official["services"]}
-    for name, spec in override["services"].items():
-        merged[name] = {**merged.get(name, {}), **spec}
+def test_env_example_matches_pin_file():
+    pin = _declared_pin()
+    text = _read(ENV_EXAMPLE)
+    assert "TAIGA_ADDONS_ROOT=" in text
+    assert f"TAIGA_PIN={pin}" in text
 
-    assert set(official["services"]) <= set(merged)
-    assert merged["taiga-gateway"]["image"] == "nginx:1.19-alpine"
-    assert merged["taiga-db"]["image"] == "postgres:12.3"
-    assert merged["taiga-events"]["image"] == "taigaio/taiga-events:latest"
-    assert merged["taiga-async"]["entrypoint"] == ["/taiga-back/docker/async_entrypoint.sh"]
-    assert merged["taiga-back"]["image"] == merged["taiga-async"]["image"]
-    assert merged["taiga-back"]["image"].startswith("taiga-addons-back:")
-    assert merged["taiga-front"]["image"].startswith("taiga-addons-front:")
+
+def test_dockerignore_excludes_non_image_paths():
+    text = _read(DOCKERIGNORE)
+    for needle in ("_bmad", "docs", ".agents", ".pytest_cache"):
+        assert needle in text, f".dockerignore missing {needle!r}"
+
+
+def test_dev_requirements_declare_test_deps():
+    text = _read(DEV_REQUIREMENTS).lower()
+    assert "pytest" in text
+    assert "yaml" in text or "pyyaml" in text
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker not installed")
 def test_docker_compose_config_merges_when_docker_present(tmp_path):
+    pin = _declared_pin()
     official = tmp_path / "docker-compose.yml"
     official.write_text(
         yaml.safe_dump(
@@ -190,7 +232,7 @@ def test_docker_compose_config_merges_when_docker_present(tmp_path):
     override_copy.write_text(_read(OVERRIDE), encoding="utf-8")
     env = os.environ.copy()
     env["TAIGA_ADDONS_ROOT"] = str(REPO)
-    env["TAIGA_PIN"] = SEED_PIN
+    env["TAIGA_PIN"] = pin
     proc = subprocess.run(
         [
             "docker",
@@ -213,5 +255,5 @@ def test_docker_compose_config_merges_when_docker_present(tmp_path):
     assert images["taiga-back"] == images["taiga-async"]
     assert "taiga-addons-back" in images["taiga-back"]
     assert "taiga-addons-front" in images["taiga-front"]
-    assert "6.10.2" in images["taiga-back"]
+    assert pin in images["taiga-back"]
     assert images["taiga-gateway"].startswith("nginx")

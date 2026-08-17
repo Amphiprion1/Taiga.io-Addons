@@ -14,3 +14,10 @@ Planning pack (implementation not started):
 | First story (ready-for-dev) | [docs/implementation/1-1-overlay-scaffolding.md](docs/implementation/1-1-overlay-scaffolding.md) |
 
 Next implementation step: `bmad-dev-story` on **1.1 Overlay scaffolding**.
+
+## Tests
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+```
