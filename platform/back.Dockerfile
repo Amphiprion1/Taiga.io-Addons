@@ -6,3 +6,11 @@
 ARG TAIGA_PIN=6.10.2
 FROM taigaio/taiga-back:${TAIGA_PIN}
 ARG TAIGA_PIN
+
+# Append-only: official /taiga-back/settings/config.py is not overwritten.
+COPY platform/addons.txt /opt/taiga-addons/addons.txt
+COPY addons/components/back/taiga_contrib_components /taiga-back/taiga_contrib_components
+COPY platform/overlay.py /taiga-back/settings/overlay.py
+COPY platform/entrypoint-back.sh /opt/taiga-addons/entrypoint-back.sh
+RUN chmod +x /opt/taiga-addons/entrypoint-back.sh
+ENV DJANGO_SETTINGS_MODULE=settings.overlay

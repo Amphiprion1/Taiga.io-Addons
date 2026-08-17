@@ -6,3 +6,10 @@
 ARG TAIGA_PIN=6.10.2
 FROM taigaio/taiga-front:${TAIGA_PIN}
 ARG TAIGA_PIN
+
+# Official 30_config_env_subst.sh stays. 40_ mutates contribPlugins only.
+RUN apk add --no-cache jq
+COPY platform/addons.txt /opt/taiga-addons/addons.txt
+COPY addons/components/front/ /usr/share/nginx/html/plugins/components/
+COPY platform/patch-front-conf.sh /docker-entrypoint.d/40_patch-front-conf.sh
+RUN chmod +x /docker-entrypoint.d/40_patch-front-conf.sh

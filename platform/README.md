@@ -29,6 +29,17 @@ What changes: `taiga-back` and `taiga-async` share image `taiga-addons-back:<pin
 
 Login to Taiga on a healthy stack is the operator smoke check (story **1.3**). This story only ships the attach path.
 
+## Plugin load (append, do not replace)
+
+Enabled slugs live in `platform/addons.txt` (comments and blank lines ignored). Each slug is appended to official config — official `.env` URLs and flags stay in effect.
+
+- **Back / async:** `DJANGO_SETTINGS_MODULE=settings.overlay` is baked into `taiga-addons-back`. That module does `from .config import *` then `INSTALLED_APPS += ["taiga_contrib_<slug>"]`. Official `/taiga-back/settings/config.py` is not copied or volume-mapped. `taiga-async` reuses the same image, so it sees the same apps without an override `entrypoint`.
+- **Front:** official `/docker-entrypoint.d/30_config_env_subst.sh` still writes `conf.json` from env. Overlay `/docker-entrypoint.d/40_patch-front-conf.sh` then appends `plugins/<slug>/<slug>.json` to `contribPlugins` (idempotent). Official `api` / `eventsUrl` / `baseHref` and Slack/GitHub entries are left untouched.
+
+Do **not** volume-map a full `config.py` or `conf.json` — that ignores official env.
+
+Stub Addon **components** ships as importable `taiga_contrib_components` plus `/usr/share/nginx/html/plugins/components/{components.json,components.js}`.
+
 ## Rollback
 
 ```bash
@@ -38,4 +49,3 @@ docker compose down
 docker compose up -d
 ```
 
-Plugin load (`INSTALLED_APPS` / `contribPlugins`) is story **1.2**, not this file.

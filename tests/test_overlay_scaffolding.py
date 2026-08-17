@@ -146,11 +146,22 @@ def test_override_does_not_pull_local_overlay_images():
 
 
 def test_override_does_not_replace_official_config_files():
-    text = _read(OVERRIDE)
-    assert "config.py" not in text
-    assert "conf.json" not in text
-    assert "INSTALLED_APPS" not in text
-    assert "contribPlugins" not in text
+    """No volume-map of official config files; async entrypoint stays official.
+
+    Dockerfiles and comments may mention config.py / INSTALLED_APPS; the
+    forbidden act is a compose volume (or async entrypoint/command) that
+    replaces official env-driven files.
+    """
+    services = _load_override()["services"]
+    forbidden_mounts = ("config.py", "conf.json")
+    for name, svc in services.items():
+        for vol in svc.get("volumes") or []:
+            text = vol if isinstance(vol, str) else yaml.safe_dump(vol)
+            for needle in forbidden_mounts:
+                assert needle not in text, f"{name} volume maps {needle}"
+        if name == "taiga-async":
+            assert "entrypoint" not in svc
+            assert "command" not in svc
 
 
 def test_override_does_not_touch_async_entrypoint():
@@ -166,8 +177,12 @@ def test_override_compose_version_compatible():
 
 
 def test_addon_tree_placeholders_exist():
-    assert (REPO / "addons" / "components" / "back" / ".gitkeep").is_file()
-    assert (REPO / "addons" / "components" / "front" / ".gitkeep").is_file()
+    back = REPO / "addons" / "components" / "back" / "taiga_contrib_components"
+    front = REPO / "addons" / "components" / "front"
+    assert (back / "__init__.py").is_file()
+    assert (back / "apps.py").is_file()
+    assert (front / "components.json").is_file()
+    assert (front / "components.js").is_file()
 
 
 def test_readme_documents_attach_and_pin():

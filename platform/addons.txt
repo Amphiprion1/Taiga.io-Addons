@@ -1,0 +1,4 @@
+# Enabled addon slugs (one per line).
+# Blank lines and # comments are ignored; a # tail on a line is stripped.
+
+components

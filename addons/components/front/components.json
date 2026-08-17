@@ -1,0 +1,8 @@
+{
+  "name": "Components",
+  "slug": "components",
+  "description": "Components addon stub",
+  "type": "misc",
+  "module": "taigaContrib.components",
+  "js": "plugins/components/components.js"
+}
