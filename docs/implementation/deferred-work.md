@@ -8,11 +8,11 @@
 
 - **`test_override_does_not_replace_official_config_files` is a whole-file substring scan.** ~~It asserts `"config.py"`, `"conf.json"`, `"INSTALLED_APPS"`, `"contribPlugins"` are absent from the entire override file including comments.~~ **Resolved in 1.2** — the test now asserts no compose volume maps those files and `taiga-async` still has no `entrypoint`/`command`. [tests/test_overlay_scaffolding.py]
 
-- **AC-4 live login was not executed.** Docker is not installed on the implementation machine. "Login to Taiga still works on a healthy stack" is deferred to story **1.3** (upgrade playbook and smoke test). This story ships the attach path and a static/config-merge proof only. [docs/implementation/1-1-overlay-scaffolding.md]
+- **AC-4 live login was not executed.** Docker is not installed on the implementation machine. "Login to Taiga still works on a healthy stack" is now a **manual operator glance** in `platform/UPGRADE.md` (story 1.3). Automated credentialed login is still not done. [docs/implementation/1-1-overlay-scaffolding.md, platform/UPGRADE.md]
 
 ## Deferred from: story 1-2-plugin-load-without-replacing-official-config (2026-08-17)
 
-- **AC-3 live container inspect was not executed.** Docker is not installed. Static tests prove registry parsing, overlay import-then-append, Dockerfile COPY/hook order, stub import, and front JSON mutate contract. `test_live_overlay_images_load_stub_when_docker_present` and the jq-driven script run are `skipif`. Live import + plugin path + `conf.json` keys belong to **1.3** smoke. [tests/test_plugin_load.py]
+- **AC-3 live container inspect was not executed.** Docker is not installed. Static tests prove registry parsing, overlay import-then-append, Dockerfile COPY/hook order, stub import, and front JSON mutate contract. `test_live_overlay_images_load_stub_when_docker_present` and the jq-driven script run are `skipif`. Story **1.3** shipped `platform/smoke.py` (fixture fail-closed + live `docker compose exec`). Live still `skipif` when Docker or a running overlay stack is absent. [tests/test_plugin_load.py, platform/smoke.py, tests/test_upgrade_playbook.py]
 
 ## Deferred from: code review of 1-2-plugin-load-without-replacing-official-config (2026-08-17)
 
