@@ -63,8 +63,21 @@ def main() -> None:
     from django.core.management import call_command
     from django.db import IntegrityError, connection, transaction
     from projects.models import Project
+    from taiga.base.routers import DefaultRouter
+    from taiga.urls import urlpatterns
+    from taiga_contrib_components.api import ComponentViewSet
+    from taiga_contrib_components import services
     from taiga_contrib_components.models import Assignment, Component
     from userstories.models import UserStory
+
+    assert DefaultRouter.instances, "apps.ready() must construct DefaultRouter"
+    router = DefaultRouter.instances[-1]
+    assert router.trailing_slash is False
+    assert any(
+        prefix == "components" and viewset is ComponentViewSet
+        for prefix, viewset, *_ in router.registry
+    ), router.registry
+    assert len(urlpatterns) == 1
 
     call_command("migrate", verbosity=0, run_syncdb=False)
 
@@ -150,6 +163,34 @@ def main() -> None:
     doomed.delete()
     assert not Assignment.objects.filter(component_id=doomed_id).exists()
     assert UserStory.objects.filter(pk=story_id).exists()
+
+    assert services.normalize_name("  api  ") == "api"
+    assert services.normalize_name("   ") == ""
+    assert services.normalize_name("") == ""
+
+    widget = Component.objects.create(project=project_a, name="Widget")
+    assert services.name_conflicts(project_a.id, "API")
+    assert services.name_conflicts(project_a.id, "api")
+    assert services.name_conflicts(project_a.id, "  api  ")
+    assert not services.name_conflicts(project_b.id, "widget")
+    assert services.name_conflicts(project_a.id, "WIDGET")
+    assert not services.name_conflicts(project_a.id, "API", exclude_pk=api.id)
+    assert not services.name_conflicts(project_a.id, "Unseen")
+
+    one = Component.objects.create(project=project_a, name="One", order=0)
+    two = Component.objects.create(project=project_a, name="Two", order=1)
+    foreign_order_before = other.order
+    services.bulk_update_component_order(
+        project_a,
+        None,
+        [(one.id, 10), (two.id, 20), (other.id, 99)],
+    )
+    one.refresh_from_db()
+    two.refresh_from_db()
+    other.refresh_from_db()
+    assert one.order == 10
+    assert two.order == 20
+    assert other.order == foreign_order_before
 
     call_command("migrate", "taiga_contrib_components", "zero", verbosity=0)
     tables_after = set(connection.introspection.table_names())

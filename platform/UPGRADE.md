@@ -158,6 +158,16 @@ python3 "$TAIGA_ADDONS_ROOT/platform/smoke.py" \
   --addons-file "$TAIGA_ADDONS_ROOT/platform/addons.txt"
 ```
 
+### Catalog REST glance
+
+After stub smoke, confirm the project catalog is reachable (authenticated
+member or admin; replace `<token>` and `<id>`):
+
+```bash
+curl -sS -H "Authorization: Bearer <token>" \
+  "$TAIGA_URL/api/v1/components?project=<id>"
+```
+
 ### Later operator glances (Epic 3 — not automated yet)
 
 When catalog / picker / chips exist, glance these after stub smoke. They are
@@ -167,8 +177,6 @@ When catalog / picker / chips exist, glance these after stub smoke. They are
 - Project settings → Components catalog
 - User Story detail → picker
 - Kanban / backlog → chips
-
-Do not `curl` `/api/v1/components/` until Epic 2 ships REST.
 
 ## AD-5 fallback (non-default)
 

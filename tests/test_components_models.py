@@ -22,6 +22,7 @@ MIGRATIONS = STUB_APP / "migrations"
 MIGRATION_INIT = MIGRATIONS / "__init__.py"
 MIGRATION_0001 = MIGRATIONS / "0001_initial.py"
 HARNESS_CHILD = Path(__file__).resolve().parent / "_django_sqlite_harness.py"
+TAIGA_STUB = Path(__file__).resolve().parent / "_taiga_stub"
 COMPOSE_DIR = os.environ.get("TAIGA_DOCKER")
 SUBPROCESS_TIMEOUT = 60
 ADDON_TABLES = {
@@ -213,6 +214,16 @@ def _module_imports(tree: ast.Module) -> list[str]:
     return imports
 
 
+def _top_level_import_modules(tree: ast.Module) -> list[str]:
+    imports: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module:
+            imports.append(node.module)
+        elif isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+    return imports
+
+
 def _overlay_exec_available() -> bool:
     if shutil.which("docker") is None:
         return False
@@ -380,7 +391,7 @@ def test_models_ast_meta_ordering_and_assignment_unique():
 
 def test_apps_py_stays_django_apps_only_and_pins_autofield():
     tree = ast.parse(_read(APPS_PY))
-    assert _module_imports(tree) == ["django.apps"]
+    assert _top_level_import_modules(tree) == ["django.apps"]
     classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
     assert len(classes) == 1
     assigns = {}
@@ -388,6 +399,7 @@ def test_apps_py_stays_django_apps_only_and_pins_autofield():
         assigns[name] = _const(value)
     assert assigns["name"] == "taiga_contrib_components"
     assert assigns["default_auto_field"] == "django.db.models.AutoField"
+    assert assigns["default"] is True
 
 
 def test_package_init_has_no_django_import():
@@ -395,6 +407,7 @@ def test_package_init_has_no_django_import():
     tree = ast.parse(src)
     for name in _module_imports(tree):
         assert name != "django" and not name.startswith("django.")
+        assert name != "taiga" and not name.startswith("taiga.")
 
 
 def test_ac2_sql_fence_rejects_official_core_tables():
@@ -520,7 +533,7 @@ def test_django_sqlite_harness(tmp_path):
 
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
-        [str(tmp_path), str(STUB_BACK), env.get("PYTHONPATH", "")]
+        [str(TAIGA_STUB), str(tmp_path), str(STUB_BACK), env.get("PYTHONPATH", "")]
     ).rstrip(os.pathsep)
 
     try:

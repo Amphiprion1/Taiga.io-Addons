@@ -28,6 +28,23 @@ GITATTRIBUTES = REPO / ".gitattributes"
 STUB_BACK = REPO / "addons" / "components" / "back"
 STUB_APP = STUB_BACK / "taiga_contrib_components"
 STUB_FRONT = REPO / "addons" / "components" / "front"
+ALLOWED_STUB_APP_ENTRIES = {
+    "__init__.py",
+    "apps.py",
+    "models.py",
+    "api.py",
+    "serializers.py",
+    "validators.py",
+    "permissions.py",
+    "services.py",
+    "migrations",
+}
+APPS_READY_IMPORTS = {
+    ("django.urls", 0),
+    ("taiga.base", 0),
+    ("taiga.urls", 0),
+    ("api", 1),
+}
 
 _GIT_SHELLS = (
     r"C:\Program Files\Git\bin\sh.exe",
@@ -245,17 +262,18 @@ def test_stub_app_importable_from_repo():
         assert mod is not None
         apps_src = _read(STUB_APP / "apps.py")
         tree = ast.parse(apps_src)
-        imports: list[str] = []
-        for node in ast.walk(tree):
+        top_imports: list[str] = []
+        for node in tree.body:
             if isinstance(node, ast.ImportFrom) and node.module:
-                imports.append(node.module)
+                top_imports.append(node.module)
             elif isinstance(node, ast.Import):
-                imports.extend(alias.name for alias in node.names)
-        assert imports == ["django.apps"]
+                top_imports.extend(alias.name for alias in node.names)
+        assert top_imports == ["django.apps"]
         classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
         assert len(classes) == 1
         assert classes[0].name == "ComponentsConfig"
         assigns = {}
+        ready_fn = None
         for node in classes[0].body:
             if (
                 isinstance(node, ast.Assign)
@@ -263,8 +281,20 @@ def test_stub_app_importable_from_repo():
                 and isinstance(node.targets[0], ast.Name)
             ):
                 assigns[node.targets[0].id] = ast.literal_eval(node.value)
+            elif isinstance(node, ast.FunctionDef) and node.name == "ready":
+                ready_fn = node
         assert assigns["name"] == "taiga_contrib_components"
-        assert not (STUB_APP / "urls.py").exists()
+        assert ready_fn is not None
+        ready_imports = set()
+        for node in ast.walk(ready_fn):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                ready_imports.add((node.module, node.level))
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    ready_imports.add((alias.name, 0))
+        assert ready_imports == APPS_READY_IMPORTS
+        entries = {p.name for p in STUB_APP.iterdir() if p.name != "__pycache__"}
+        assert entries == ALLOWED_STUB_APP_ENTRIES
     finally:
         if sys.path and sys.path[0] == str(STUB_BACK):
             sys.path.pop(0)
