@@ -1,1 +1,1 @@
-# Importable Django app package. No models, URLs, or REST yet.
+# Importable Django app package. Models and migrations only; no URLs or REST yet.

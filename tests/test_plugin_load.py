@@ -264,7 +264,6 @@ def test_stub_app_importable_from_repo():
             ):
                 assigns[node.targets[0].id] = ast.literal_eval(node.value)
         assert assigns["name"] == "taiga_contrib_components"
-        assert not (STUB_APP / "models.py").exists()
         assert not (STUB_APP / "urls.py").exists()
     finally:
         if sys.path and sys.path[0] == str(STUB_BACK):

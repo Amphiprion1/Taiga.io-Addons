@@ -1,5 +1,5 @@
 # generated: 2026-08-17
-# last_updated: 2026-08-17
+# last_updated: 2026-08-18
 # project: Taiga.io-addons
 # project_key: NOKEY
 # tracking_system: file-system
@@ -28,7 +28,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-08-17
-last_updated: 2026-08-17
+last_updated: 2026-08-18
 project: Taiga.io-addons
 project_key: NOKEY
 tracking_system: file-system
@@ -40,8 +40,8 @@ development_status:
   1-2-plugin-load-without-replacing-official-config: done
   1-3-upgrade-playbook-and-smoke-test: done
   epic-1-retrospective: optional
-  epic-2: backlog
-  2-1-models-and-migrations: backlog
+  epic-2: in-progress
+  2-1-models-and-migrations: in-progress
   2-2-catalog-rest-and-permissions: backlog
   2-3-assignment-rest-and-permissions: backlog
   epic-2-retrospective: optional
