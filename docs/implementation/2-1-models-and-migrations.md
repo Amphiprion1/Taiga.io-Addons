@@ -4,7 +4,7 @@ baseline_commit: cffe7d6efe64ab020eb747c6421c6bb9dcb3130a
 
 # Story 2.1: Models and migrations
 
-Status: in-progress
+Status: done
 
 <!-- Ultimate context engine analysis completed - comprehensive developer guide created -->
 
@@ -62,16 +62,16 @@ _Code review 2026-08-18 — layers: Blind Hunter, Edge Case Hunter, Acceptance A
 - [x] [Review][Decision] **Layer B harness isolation strategy** — **Resolved: subprocess isolation.** The Django body moved to `tests/_django_sqlite_harness.py`, run in a child interpreter; the parent test writes the stubs, sets `PYTHONPATH`, and asserts on the exit code, surfacing the child's stdout/stderr on failure. `settings.configure()`/`django.setup()`, `sys.path` and `sys.modules` mutations now die with the child, so 2.2/2.3 can add Django tests freely. Verified: suite still 74 passed / 6 skipped; a mutant (`save()` strip removed) is still caught with the child's exact file:line; a simulated 2.2 test that configures Django *first* now coexists (75 passed) where it previously forced a hard `pytest.fail`.
 - [x] [Review][Decision] **Cross-project Assignment is not prevented at any layer** — **Resolved: deferred, with a decision required before 2.3 opens write paths.** The unique constraint is `(userstory, component)` only [addons/components/back/taiga_contrib_components/models.py:33-41], so a UserStory in project A can take a Component owned by project B: both FKs resolve, uniqueness holds, the row persists. Deferred because no cheap airtight fix exists (a Postgres `CHECK` cannot span tables; a trigger means DDL the overlay exists to avoid; `Model.clean()` is bypassed by every bulk path), and the one airtight option — denormalizing `project_id` onto Assignment — goes stale when a UserStory is moved between projects in Taiga, making the invariant its own bug source. **Not** the same class as FR-6 trimming: that yields an ugly but meaningful row, this yields incoherent data no later serializer can repair, because there is no correct answer to which project owns the truth. Cost is asymmetric — free now against empty tables, a data migration plus a repair policy once 2.2/2.3 ship write paths.
 
-- [ ] [Review][Patch] AC-2 fence cannot detect Official Taiga tables — `_taiga_idents` matches only `taiga_`-prefixed identifiers, but core tables are `projects_project` / `userstories_userstory`, so a `RunSQL` writing to them passes clean [tests/test_components_models.py:60,254]
-- [ ] [Review][Patch] AC-2 fence has no default-deny — ops outside `{CreateModel} ∪ FORBIDDEN_OPS ∪ {RunSQL}` (`RunPython`, `SeparateDatabaseAndState`, `AlterModelOptions`, …) hit no branch; and within `FORBIDDEN_OPS`, a positionally-written op yields `target is None` and is waved through [tests/test_components_models.py:226-256,239-243]
-- [ ] [Review][Patch] `db_constraint=False` is asserted only against `models.py`, never against the hand-written migration that actually builds the schema, nor against the emitted DDL [tests/test_components_models.py:290-292 vs migrations/0001_initial.py:32-39,60-67]
-- [ ] [Review][Patch] `deferred-work.md` declares the 1.3 baseline "Corrected in 2.1", but `1-3-upgrade-playbook-and-smoke-test.md:221` still reads "37 passed, 3 skipped" — the ledger asserts a correction that does not exist [docs/implementation/1-3-upgrade-playbook-and-smoke-test.md:221]
+- [x] [Review][Patch] AC-2 fence cannot detect Official Taiga tables — **Resolved:** `_taiga_idents` replaced by `_sql_table_idents` + default-allow `ALLOWED_SQL_IDENTS` (built from `ADDON_TABLES.values()`). `projects_project` / `userstories_userstory` now fail the fence; covered by `test_ac2_sql_fence_rejects_official_core_tables`.
+- [x] [Review][Patch] AC-2 fence has no default-deny — **Resolved:** only `{CreateModel, RunSQL}` are legal; unknown ops (`RunPython`, `SeparateDatabaseAndState`, `AlterModelOptions`, …) raise. `_op_target_name` reads keyword or first positional so a positional `DeleteModel('Project')` cannot slip through. Covered by `test_ac2_fence_default_denies_unknown_ops_and_positional_targets`.
+- [x] [Review][Patch] `db_constraint=False` is asserted only against `models.py` — **Resolved:** `test_migration_cross_boundary_fks_have_no_db_constraint` AST-walks `0001_initial` CreateModel fields; Layer B reads emitted SQLite DDL and asserts no `projects_project` / `userstories_userstory` REFERENCES while the addon→addon FK remains.
+- [x] [Review][Patch] `deferred-work.md` declares the 1.3 baseline "Corrected in 2.1" — **Resolved:** `1-3-upgrade-playbook-and-smoke-test.md` Files table now reads `17 passed, 2 skipped`; deferred-work updated to match.
 - [x] [Review][Patch] ~~Harness `finally` restores only `sys.path`; Django settings, the app registry and `sys.modules` entries stay resident~~ — **moot, resolved by the D1 subprocess split**: the child process owns all of that state and exits with it, so there is nothing left to tear down [tests/_django_sqlite_harness.py]
-- [ ] [Review][Patch] `Django==3.2.25` pinned with no Python-version ceiling recorded — Django 3.2 needs `cgi`, removed in 3.13; `importorskip("django")` still passes and the failure lands as a hard error inside `django.setup()` [requirements-dev.txt:3]
-- [ ] [Review][Patch] `makemigrations --check --dry-run` is gated behind Docker, but runs offline in the Layer B harness today (independently reproduced → "No changes detected"). Model↔migration drift is the top risk for a hand-written migration and its only check is deferred to a container nobody can run [tests/test_components_models.py:519-530]
-- [ ] [Review][Patch] Live `showmigrations` assertion is unbound — `"0001_initial" in stdout` and `"[X]" in stdout` are checked independently, so an unapplied `0001` alongside an applied `0002` passes AC-1's live check [tests/test_components_models.py:513-515]
-- [ ] [Review][Patch] `_compose_exec` passes `timeout=` with no `try/except`, unlike the `_overlay_exec_available` probe — a wedged back container errors the suite instead of skipping [tests/test_components_models.py:172-190,512,524]
-- [ ] [Review][Patch] `ADDON_TABLES` values are never read (only `set(ADDON_TABLES)` keys are), while the same table-name literals are re-hardcoded at :435-436 and :496-498 [tests/test_components_models.py:26-30]
+- [x] [Review][Patch] `Django==3.2.25` pinned with no Python-version ceiling — **Resolved:** `requirements-dev.txt` is `Django==3.2.25; python_version < "3.13"`. Layer B skips on Python ≥ 3.13 before `importorskip`. Covered by `test_django_pin_records_python_ceiling`.
+- [x] [Review][Patch] `makemigrations --check --dry-run` is gated behind Docker — **Resolved:** Layer B child now runs `makemigrations --check --dry-run taiga_contrib_components` after `migrate` and fails on drift. Live skipif kept as an extra check when the stack is up.
+- [x] [Review][Patch] Live `showmigrations` assertion is unbound — **Resolved:** `_assert_0001_initial_applied` requires `[X]`/`[x]` on the same line as `0001_initial`. Covered by `test_showmigrations_binds_applied_mark_to_0001` (unapplied 0001 + applied 0002 fails).
+- [x] [Review][Patch] `_compose_exec` passes `timeout=` with no `try/except` — **Resolved:** `_compose_exec` now catches `OSError` / `TimeoutExpired` and `pytest.skip`s, matching `_overlay_exec_available`.
+- [x] [Review][Patch] `ADDON_TABLES` values are never read — **Resolved:** `ALLOWED_SQL_IDENTS` and `INDEX_SQL` consume `ADDON_TABLES.values()`; harness uses `COMPONENT_TABLE` / `ASSIGNMENT_TABLE` matching those values; `test_addon_table_values_are_the_sql_allowlist_and_harness_source` keeps them in sync.
 
 - [x] [Review][Defer] SQLite `lower()` is ASCII-only; Postgres folds per collation — AC-3's proof is silent on the exact case the engines disagree on [tests/test_components_models.py:390,452-455] — deferred, needs Postgres
 - [x] [Review][Defer] `Component.save()` name normalization is not an invariant — `bulk_create`, `queryset.update()`, raw SQL, and `save(update_fields=…)` omitting `name` all bypass it; empty/whitespace-only names are accepted at every layer [addons/components/back/taiga_contrib_components/models.py:11,17-20] — deferred, FR-6 maps to 2.2/3.1
@@ -330,6 +330,8 @@ Grok 4.6 (bmad-dev-story)
 - Full suite: `python -m pytest -q` → 74 passed, 6 skipped (previous four live/Docker/jq skips plus two new live migrate/drift checks)
 - Live `docker compose exec` was **not** executed — Docker absent. Layer B ran real `migrate` / constraints / reverse. skipif is honest.
 - Python 3.11 emits Django 3.2 `cgi` / `locale.getdefaultlocale` DeprecationWarnings during the harness; they do not fail the suite.
+- Review follow-up RED: 3 failed (`_taiga_idents` missed `projects_project`; `_assert_ac2_operation` missing; Django pin had no `python_version` marker).
+- Review follow-up GREEN: AC-2 default-deny + official-table allowlist; migration AST + emitted-DDL `db_constraint` checks; 1.3 baseline cell corrected; Django pin `python_version < "3.13"` + Layer B skip; `makemigrations --check` in the child harness; bound showmigrations helper; `_compose_exec` skip-on-timeout; `ADDON_TABLES.values()` consumed. `python -m pytest -q` → **80 passed, 6 skipped**.
 
 ### Completion Notes List
 
@@ -341,7 +343,15 @@ Grok 4.6 (bmad-dev-story)
 - `default_auto_field = "django.db.models.AutoField"` is a string assignment on `ComponentsConfig`; `apps.py` still imports only `django.apps`.
 - Layer B is the strongest AC-1 proof available without Docker: it runs `migrate` (not `syncdb`) and enforces AC-3/4/5 plus `migrate taiga_contrib_components zero`.
 - Live showmigrations / makemigrations --check skipif — Docker absent. Recorded in deferred-work.
-- 1.3 wrong baseline (37/3 vs 17/2) marked corrected in deferred-work. `platform/TAIGA_PIN` unchanged.
+- 1.3 wrong baseline (37/3 vs 17/2) marked corrected in deferred-work **and** in the 1.3 Files table. `platform/TAIGA_PIN` unchanged.
+- ✅ Resolved review finding [Patch]: AC-2 fence now default-denies unknown ops and official core tables (`projects_project` / `userstories_userstory`).
+- ✅ Resolved review finding [Patch]: `db_constraint=False` asserted on `0001_initial` AST and on emitted SQLite DDL.
+- ✅ Resolved review finding [Patch]: 1.3 baseline count actually corrected (17/2).
+- ✅ Resolved review finding [Patch]: Django 3.2.25 pin records `python_version < "3.13"`; Layer B skips on 3.13+.
+- ✅ Resolved review finding [Patch]: `makemigrations --check --dry-run` runs offline in the Layer B child.
+- ✅ Resolved review finding [Patch]: live `showmigrations` binds `[X]` to the `0001_initial` line.
+- ✅ Resolved review finding [Patch]: `_compose_exec` skip-on-timeout/OSError.
+- ✅ Resolved review finding [Patch]: `ADDON_TABLES` values drive the SQL allowlist, INDEX_SQL, and harness table names.
 
 ### File List
 
@@ -356,9 +366,12 @@ Grok 4.6 (bmad-dev-story)
 - requirements-dev.txt
 - docs/implementation/deferred-work.md
 - docs/implementation/2-1-models-and-migrations.md
+- docs/implementation/1-3-upgrade-playbook-and-smoke-test.md
 - docs/implementation/sprint-status.yaml
 
 ### Change Log
 
 - 2026-08-18: Implemented Component/Assignment models and addon-owned `0001_initial`. Status → review. Live Docker exec skipif (Docker absent). Django 3.2.25 pinned for the SQLite harness.
 - 2026-08-18: Code review (Blind Hunter + Edge Case Hunter + Acceptance Auditor). 2 decisions, 10 patches, 4 defers, 5 dismissed. D1 applied: Layer B harness moved to a child process (`tests/_django_sqlite_harness.py`) so `settings.configure()`/`django.setup()` no longer leak across tests — suite still 74 passed / 6 skipped, mutant still caught, a Django-configuring test can now precede it. D2 deferred with a decision required before 2.3 opens write paths. Remaining 9 patches left as action items. Status → in-progress.
+- 2026-08-18: Addressed code review findings - 9 items resolved (Date: 2026-08-18). AC-2 default-deny + official-table fence, migration/DDL `db_constraint` assertions, 1.3 baseline correction, Django Python ceiling, offline `makemigrations --check`, bound showmigrations, compose-exec skip, ADDON_TABLES values consumed. Suite 80 passed, 6 skipped. Status → review.
+- 2026-08-18: Marked done after review follow-ups.

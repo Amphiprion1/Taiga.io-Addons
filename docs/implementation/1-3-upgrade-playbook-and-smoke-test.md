@@ -218,7 +218,7 @@ If `docker` / compose project is missing, live mode exits non-zero with a clear 
 | `platform/addons.txt` | `components` | **Do not change** | |
 | `platform/compose.env.example` | two keys | **Do not change** unless a test forces pin-copy sync — not this story | |
 | `tests/test_overlay_scaffolding.py` | 20 passed, 1 skipped | **Do not break** | README needles, override invariants |
-| `tests/test_plugin_load.py` | 37 passed, 3 skipped | **Do not break** | Live test still skipif; you may leave its docstring saying 1.3 owns smoke |
+| `tests/test_plugin_load.py` | 17 passed, 2 skipped | **Do not break** | Live test still skipif; you may leave its docstring saying 1.3 owns smoke |
 | Root `README.md` | Stale (“implementation not started”, next = 1.1) | **Out of scope** | Do not expand this story to rewrite marketing docs |
 
 ### README needles you will break if careless

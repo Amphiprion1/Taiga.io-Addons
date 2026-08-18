@@ -26,7 +26,7 @@
 
 - **`git pull --ff-only` has no stated precondition or recovery.** Step 2 assumes a clean, non-diverged `taiga-docker` checkout. If the operator has local modifications the pull aborts mid-playbook with no documented next step. Deferred as an operator-environment concern rather than an overlay defect. [platform/UPGRADE.md:28-33]
 
-- ~~**Story 1.3 spec carries a wrong baseline test count.**~~ **Corrected in 2.1.** The 1.3 "Files being modified" table claimed `tests/test_plugin_load.py` was "37 passed, 3 skipped"; the real pre-2.1 baseline is 17 passed, 2 skipped in that file and **64 passed, 4 skipped** for the whole suite. 2.1 used the corrected count and does not copy 37/3 forward. [docs/implementation/1-3-upgrade-playbook-and-smoke-test.md, docs/implementation/2-1-models-and-migrations.md]
+- ~~**Story 1.3 spec carries a wrong baseline test count.**~~ **Corrected in 2.1.** The 1.3 "Files being modified" table claimed `tests/test_plugin_load.py` was "37 passed, 3 skipped"; that cell now reads **17 passed, 2 skipped**. The real pre-2.1 baseline is 17/2 in that file and **64 passed, 4 skipped** for the whole suite. [docs/implementation/1-3-upgrade-playbook-and-smoke-test.md, docs/implementation/2-1-models-and-migrations.md]
 
 Eighteen [Patch] review findings from the same review were resolved in the 2026-08-17 follow-up (rollback honesty, live compose dir, `.env` expansion, empty-slug fail-closed, pull prohibition, seed 404, exec vs env exits, subprocess timeouts, wait-after-up, ordered needles, merge re-check, overlay identity assert, corrupted `contribPlugins`, `pg_dump` guard, crash-consistent snapshot, build-fail stop, AC-4 owning story, README attach-only). See the story file Change Log.
 

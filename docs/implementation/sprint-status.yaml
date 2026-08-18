@@ -41,7 +41,7 @@ development_status:
   1-3-upgrade-playbook-and-smoke-test: done
   epic-1-retrospective: optional
   epic-2: in-progress
-  2-1-models-and-migrations: in-progress
+  2-1-models-and-migrations: done
   2-2-catalog-rest-and-permissions: backlog
   2-3-assignment-rest-and-permissions: backlog
   epic-2-retrospective: optional

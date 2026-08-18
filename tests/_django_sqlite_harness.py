@@ -17,7 +17,11 @@ the failure the parent surfaces.
 from __future__ import annotations
 
 import contextlib
+import io
 import sys
+
+COMPONENT_TABLE = "taiga_contrib_components_component"
+ASSIGNMENT_TABLE = "taiga_contrib_components_assignment"
 
 
 @contextlib.contextmanager
@@ -64,9 +68,25 @@ def main() -> None:
 
     call_command("migrate", verbosity=0, run_syncdb=False)
 
+    drift_out = io.StringIO()
+    try:
+        call_command(
+            "makemigrations",
+            "taiga_contrib_components",
+            check=True,
+            dry_run=True,
+            verbosity=1,
+            stdout=drift_out,
+            stderr=drift_out,
+        )
+    except SystemExit as exc:
+        raise AssertionError(
+            f"makemigrations --check detected model/migration drift: {drift_out.getvalue()}"
+        ) from exc
+
     tables = set(connection.introspection.table_names())
-    assert "taiga_contrib_components_component" in tables
-    assert "taiga_contrib_components_assignment" in tables
+    assert COMPONENT_TABLE in tables
+    assert ASSIGNMENT_TABLE in tables
 
     def columns(table: str) -> set[str]:
         with connection.cursor() as cursor:
@@ -75,8 +95,23 @@ def main() -> None:
                 for col in connection.introspection.get_table_description(cursor, table)
             }
 
-    component_cols = columns("taiga_contrib_components_component")
-    assignment_cols = columns("taiga_contrib_components_assignment")
+    def table_ddl(table: str) -> str:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                [table],
+            )
+            row = cursor.fetchone()
+            assert row is not None and row[0], table
+            return row[0]
+
+    component_cols = columns(COMPONENT_TABLE)
+    assignment_cols = columns(ASSIGNMENT_TABLE)
+    component_ddl = table_ddl(COMPONENT_TABLE)
+    assignment_ddl = table_ddl(ASSIGNMENT_TABLE)
+    assert "projects_project" not in component_ddl.lower()
+    assert "userstories_userstory" not in assignment_ddl.lower()
+    assert COMPONENT_TABLE in assignment_ddl
     assert {"id", "project_id", "name", "order"} <= component_cols
     assert "project_id_id" not in component_cols
     assert {"id", "userstory_id", "component_id"} <= assignment_cols
@@ -118,8 +153,8 @@ def main() -> None:
 
     call_command("migrate", "taiga_contrib_components", "zero", verbosity=0)
     tables_after = set(connection.introspection.table_names())
-    assert "taiga_contrib_components_component" not in tables_after
-    assert "taiga_contrib_components_assignment" not in tables_after
+    assert COMPONENT_TABLE not in tables_after
+    assert ASSIGNMENT_TABLE not in tables_after
 
 
 if __name__ == "__main__":

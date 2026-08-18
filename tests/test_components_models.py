@@ -29,16 +29,19 @@ ADDON_TABLES = {
     "Assignment": "taiga_contrib_components_assignment",
 }
 ALLOWED_CREATE_MODELS = set(ADDON_TABLES)
-FORBIDDEN_OPS = {
-    "AddField",
-    "AlterField",
-    "RemoveField",
-    "RenameField",
-    "RenameModel",
-    "AlterModelTable",
-    "DeleteModel",
-    "AddIndex",
-    "AddConstraint",
+ALLOWED_MIGRATION_OPS = {"CreateModel", "RunSQL"}
+COMPONENT_LOWER_NAME_INDEX = "taiga_contrib_components_component_project_lower_name_uniq"
+OFFICIAL_TABLES = {
+    "projects_project",
+    "userstories_userstory",
+}
+# Underscore-bearing SQL idents the AC-2 RunSQL fence will accept. Table
+# names come from ADDON_TABLES.values() so a rename cannot drift.
+ALLOWED_SQL_IDENTS = set(ADDON_TABLES.values()) | {
+    COMPONENT_LOWER_NAME_INDEX,
+    "project_id",
+    "userstory_id",
+    "component_id",
 }
 EXPECTED_RELATED = {
     ("Component", "project"): "contrib_components",
@@ -46,11 +49,11 @@ EXPECTED_RELATED = {
     ("Assignment", "component"): "assignments",
 }
 INDEX_SQL = (
-    "CREATE UNIQUE INDEX taiga_contrib_components_component_project_lower_name_uniq "
-    "ON taiga_contrib_components_component (project_id, lower(name));"
+    f"CREATE UNIQUE INDEX {COMPONENT_LOWER_NAME_INDEX} "
+    f"ON {ADDON_TABLES['Component']} (project_id, lower(name));"
 )
 INDEX_REVERSE_SQL = (
-    "DROP INDEX IF EXISTS taiga_contrib_components_component_project_lower_name_uniq;"
+    f"DROP INDEX IF EXISTS {COMPONENT_LOWER_NAME_INDEX};"
 )
 
 
@@ -58,8 +61,19 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _taiga_idents(sql: str) -> list[str]:
-    return re.findall(r"\btaiga_[a-z0-9_]+\b", sql)
+def _sql_table_idents(sql: str) -> list[str]:
+    """Identifiers that look like table/index/column names (contain `_`)."""
+    return re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", sql.lower())
+
+
+def _assert_sql_is_addon_only(sql: str) -> None:
+    assert isinstance(sql, str)
+    lower = sql.lower()
+    assert "alter table" not in lower
+    assert "drop table" not in lower
+    for ident in _sql_table_idents(lower):
+        assert ident not in OFFICIAL_TABLES, ident
+        assert ident in ALLOWED_SQL_IDENTS, ident
 
 
 def _attr_path(node: ast.AST) -> str:
@@ -84,6 +98,55 @@ def _kw(call: ast.Call, name: str) -> ast.AST | None:
         if keyword.arg == name:
             return keyword.value
     return None
+
+
+def _op_target_name(call: ast.Call) -> ast.AST | None:
+    """Keyword `name`/`model_name`, else first positional arg (cannot wave through)."""
+    target = _kw(call, "model_name") or _kw(call, "name")
+    if target is not None:
+        return target
+    if call.args:
+        return call.args[0]
+    return None
+
+
+def _createmodel_field_calls(call: ast.Call) -> dict[str, ast.Call]:
+    fields_node = _kw(call, "fields")
+    if fields_node is None and len(call.args) >= 2:
+        fields_node = call.args[1]
+    assert isinstance(fields_node, ast.List), "CreateModel fields missing"
+    out: dict[str, ast.Call] = {}
+    for elt in fields_node.elts:
+        if isinstance(elt, ast.Tuple) and len(elt.elts) == 2:
+            key, value = elt.elts
+            if isinstance(value, ast.Call):
+                out[str(_const(key))] = value
+    return out
+
+
+def _assert_ac2_operation(node: ast.AST) -> None:
+    assert isinstance(node, ast.Call)
+    op = _call_name(node).rsplit(".", 1)[-1]
+    assert op in ALLOWED_MIGRATION_OPS, f"AC-2 default-deny: unexpected op {op}"
+    if op == "CreateModel":
+        name_node = _op_target_name(node)
+        assert name_node is not None, "CreateModel has no name (keyword or positional)"
+        assert _const(name_node) in ALLOWED_CREATE_MODELS
+        return
+    sql_node = _kw(node, "sql") or (node.args[0] if node.args else None)
+    reverse_node = _kw(node, "reverse_sql")
+    if reverse_node is None and len(node.args) >= 2:
+        reverse_node = node.args[1]
+    assert sql_node is not None
+    assert reverse_node is not None
+    _assert_sql_is_addon_only(_const(sql_node))
+    _assert_sql_is_addon_only(_const(reverse_node))
+
+
+def _assert_0001_initial_applied(stdout: str) -> None:
+    lines = [ln for ln in stdout.splitlines() if "0001_initial" in ln]
+    assert lines, stdout
+    assert any(re.search(r"\[[Xx]\]", ln) for ln in lines), stdout
 
 
 def _const(node: ast.AST):
@@ -171,22 +234,25 @@ def _overlay_exec_available() -> bool:
 
 
 def _compose_exec(*manage_args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            "docker",
-            "compose",
-            "exec",
-            "-T",
-            "taiga-back",
-            "/opt/venv/bin/python",
-            "manage.py",
-            *manage_args,
-        ],
-        capture_output=True,
-        text=True,
-        cwd=COMPOSE_DIR,
-        timeout=SUBPROCESS_TIMEOUT,
-    )
+    try:
+        return subprocess.run(
+            [
+                "docker",
+                "compose",
+                "exec",
+                "-T",
+                "taiga-back",
+                "/opt/venv/bin/python",
+                "manage.py",
+                *manage_args,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=COMPOSE_DIR,
+            timeout=SUBPROCESS_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        pytest.skip(f"compose exec taiga-back unavailable: {exc}")
 
 
 # --- A. Static / AST (no Django) ------------------------------------------------
@@ -229,31 +295,7 @@ def test_migration_ac2_fence_does_not_touch_official_tables():
     operations = _migration_assign(tree, "operations")
     assert isinstance(operations, ast.List)
     for node in operations.elts:
-        assert isinstance(node, ast.Call)
-        op = _call_name(node).rsplit(".", 1)[-1]
-        if op == "CreateModel":
-            name_node = _kw(node, "name")
-            assert name_node is not None
-            assert _const(name_node) in ALLOWED_CREATE_MODELS
-            continue
-        if op in FORBIDDEN_OPS:
-            target = _kw(node, "model_name") or _kw(node, "name")
-            if target is not None:
-                raw = _const(target)
-                assert str(raw) in ALLOWED_CREATE_MODELS or str(raw).capitalize() in ALLOWED_CREATE_MODELS
-            continue
-        if op == "RunSQL":
-            sql_node = _kw(node, "sql")
-            reverse_node = _kw(node, "reverse_sql")
-            assert sql_node is not None
-            assert reverse_node is not None
-            for body in (_const(sql_node), _const(reverse_node)):
-                assert isinstance(body, str)
-                lower = body.lower()
-                assert "alter table" not in lower
-                assert "drop table" not in lower
-                for ident in _taiga_idents(lower):
-                    assert ident.startswith("taiga_contrib_components_component"), ident
+        _assert_ac2_operation(node)
 
 
 def test_migration_lower_name_index_sql_and_reverse():
@@ -355,6 +397,76 @@ def test_package_init_has_no_django_import():
         assert name != "django" and not name.startswith("django.")
 
 
+def test_ac2_sql_fence_rejects_official_core_tables():
+    """Core tables are projects_project / userstories_userstory, not taiga_*."""
+    sneaky_project = "UPDATE projects_project SET name = 'x'"
+    sneaky_story = "DELETE FROM userstories_userstory WHERE id = 1"
+    assert "projects_project" in _sql_table_idents(sneaky_project)
+    assert "userstories_userstory" in _sql_table_idents(sneaky_story)
+    with pytest.raises(AssertionError):
+        _assert_sql_is_addon_only(sneaky_project)
+    with pytest.raises(AssertionError):
+        _assert_sql_is_addon_only(sneaky_story)
+
+
+def test_ac2_fence_default_denies_unknown_ops_and_positional_targets():
+    tree = ast.parse(
+        "ops = [\n"
+        "    migrations.RunPython(noop),\n"
+        "    migrations.DeleteModel('Project'),\n"
+        "    migrations.SeparateDatabaseAndState(),\n"
+        "    migrations.AlterModelOptions(name='Component', options={}),\n"
+        "]\n"
+    )
+    ops = tree.body[0].value
+    assert isinstance(ops, ast.List)
+    for node in ops.elts:
+        with pytest.raises(AssertionError):
+            _assert_ac2_operation(node)
+
+
+def test_django_pin_records_python_ceiling():
+    text = (REPO / "requirements-dev.txt").read_text(encoding="utf-8")
+    assert re.search(
+        r'^Django==3\.2\.25\s*;\s*python_version\s*<\s*["\']3\.13["\']\s*$',
+        text,
+        re.M,
+    ), text
+
+
+def test_migration_cross_boundary_fks_have_no_db_constraint():
+    tree = ast.parse(_read(MIGRATION_0001))
+    operations = _migration_assign(tree, "operations")
+    assert isinstance(operations, ast.List)
+    by_name: dict[str, dict[str, ast.Call]] = {}
+    for node in operations.elts:
+        if isinstance(node, ast.Call) and _call_name(node).endswith("CreateModel"):
+            name_node = _op_target_name(node)
+            assert name_node is not None
+            by_name[str(_const(name_node))] = _createmodel_field_calls(node)
+    project_fk = by_name["Component"]["project"]
+    userstory_fk = by_name["Assignment"]["userstory"]
+    component_fk = by_name["Assignment"]["component"]
+    assert _db_constraint(project_fk) is False
+    assert _db_constraint(userstory_fk) is False
+    assert _db_constraint(component_fk) is not False
+
+
+def test_addon_table_values_are_the_sql_allowlist_and_harness_source():
+    assert set(ADDON_TABLES.values()) <= ALLOWED_SQL_IDENTS
+    src = _read(HARNESS_CHILD)
+    for table in ADDON_TABLES.values():
+        assert table in src
+
+
+def test_showmigrations_binds_applied_mark_to_0001():
+    _assert_0001_initial_applied("taiga_contrib_components\n [X] 0001_initial\n")
+    with pytest.raises(AssertionError):
+        _assert_0001_initial_applied(" [ ] 0001_initial\n [X] 0002_later\n")
+    with pytest.raises(AssertionError):
+        _assert_0001_initial_applied(" [X] 0002_later\n")
+
+
 # --- B. Django + SQLite harness ------------------------------------------------
 
 
@@ -399,6 +511,8 @@ def test_django_sqlite_harness(tmp_path):
     the grave with it, so this test neither leaks state nor depends on
     collection order.
     """
+    if sys.version_info >= (3, 13):
+        pytest.skip("Django 3.2.25 needs cgi (removed in Python 3.13)")
     pytest.importorskip("django")
 
     _write_stub_app(tmp_path, "projects", "Project", "name")
@@ -439,8 +553,7 @@ def test_live_showmigrations_addon_0001_applied():
         pytest.skip("overlay stack not running (compose exec taiga-back failed)")
     proc = _compose_exec("showmigrations", "taiga_contrib_components")
     assert proc.returncode == 0, proc.stderr
-    assert "0001_initial" in proc.stdout
-    assert "[X]" in proc.stdout or "[x]" in proc.stdout
+    _assert_0001_initial_applied(proc.stdout)
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker not installed")
