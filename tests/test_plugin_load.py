@@ -28,17 +28,11 @@ GITATTRIBUTES = REPO / ".gitattributes"
 STUB_BACK = REPO / "addons" / "components" / "back"
 STUB_APP = STUB_BACK / "taiga_contrib_components"
 STUB_FRONT = REPO / "addons" / "components" / "front"
-ALLOWED_STUB_APP_ENTRIES = {
-    "__init__.py",
-    "apps.py",
-    "models.py",
-    "api.py",
-    "serializers.py",
-    "validators.py",
-    "permissions.py",
-    "services.py",
-    "migrations",
-}
+
+_TESTS = Path(__file__).resolve().parent
+if str(_TESTS) not in sys.path:
+    sys.path.insert(0, str(_TESTS))
+from _addon_package import ALLOWED_STUB_APP_ENTRIES  # noqa: E402
 APPS_READY_IMPORTS = {
     ("django.urls", 0),
     ("taiga.base", 0),

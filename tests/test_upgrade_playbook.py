@@ -239,6 +239,16 @@ def test_deferred_work_ac4_names_owning_story():
     assert "AC-4" in text
 
 
+def test_upgrade_playbook_catalog_glance_defines_url_and_fails_closed():
+    smoke = _read(UPGRADE).split("## 6. Smoke", 1)[1].split("## AD-5", 1)[0]
+    assert "/api/v1/components" in smoke
+    assert "TAIGA_URL:=" in smoke
+    assert "TAIGA_SCHEME" in smoke
+    assert "TAIGA_DOMAIN" in smoke
+    assert "%{http_code}" in smoke
+    assert 'test "$code" = "200"' in smoke
+
+
 # --- smoke.py contract (AC-2) -------------------------------------------------
 
 

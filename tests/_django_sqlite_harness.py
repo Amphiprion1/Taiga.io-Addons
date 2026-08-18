@@ -56,6 +56,10 @@ def main() -> None:
         SECRET_KEY="story-2-1-harness",
         USE_TZ=True,
     )
+    from taiga.urls import urlpatterns
+
+    urlpatterns_before = len(urlpatterns)
+
     import django
 
     django.setup()
@@ -63,9 +67,10 @@ def main() -> None:
     from django.core.management import call_command
     from django.db import IntegrityError, connection, transaction
     from projects.models import Project
+    from taiga.base.exceptions import ValidationError
     from taiga.base.routers import DefaultRouter
-    from taiga.urls import urlpatterns
     from taiga_contrib_components.api import ComponentViewSet
+    from taiga_contrib_components.api import bulk_update_component_order as reorder
     from taiga_contrib_components import services
     from taiga_contrib_components.models import Assignment, Component
     from userstories.models import UserStory
@@ -77,7 +82,7 @@ def main() -> None:
         prefix == "components" and viewset is ComponentViewSet
         for prefix, viewset, *_ in router.registry
     ), router.registry
-    assert len(urlpatterns) == 1
+    assert len(urlpatterns) == urlpatterns_before + 1
 
     call_command("migrate", verbosity=0, run_syncdb=False)
 
@@ -191,6 +196,23 @@ def main() -> None:
     assert one.order == 10
     assert two.order == 20
     assert other.order == foreign_order_before
+
+    for bad in (
+        [[one.id]],
+        [[one.id, 1, 9]],
+        ["x"],
+        [[one.id, "abc"]],
+        "x",
+        None,
+        [[True, 1]],
+    ):
+        with raises(ValidationError):
+            reorder(project_a, None, bad)
+    reorder(project_a, None, [[one.id, 30], [two.id, 40]])
+    one.refresh_from_db()
+    two.refresh_from_db()
+    assert one.order == 30
+    assert two.order == 40
 
     call_command("migrate", "taiga_contrib_components", "zero", verbosity=0)
     tables_after = set(connection.introspection.table_names())

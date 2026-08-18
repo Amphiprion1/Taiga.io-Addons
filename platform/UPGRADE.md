@@ -161,12 +161,21 @@ python3 "$TAIGA_ADDONS_ROOT/platform/smoke.py" \
 ### Catalog REST glance
 
 After stub smoke, confirm the project catalog is reachable (authenticated
-member or admin; replace `<token>` and `<id>`):
+member or admin; replace `<token>` and `<id>`). Official `.env` does not
+define `TAIGA_URL`. After sourcing it (step 6 header), derive the public
+origin from `TAIGA_SCHEME` and `TAIGA_DOMAIN`:
 
 ```bash
-curl -sS -H "Authorization: Bearer <token>" \
-  "$TAIGA_URL/api/v1/components?project=<id>"
+: "${TAIGA_URL:=${TAIGA_SCHEME:-http}://${TAIGA_DOMAIN:-localhost:9000}}"
+code=$(curl -sS -o /tmp/taiga-components-glance.json -w "%{http_code}" \
+  -H "Authorization: Bearer <token>" \
+  "$TAIGA_URL/api/v1/components?project=<id>")
+test "$code" = "200"
 ```
+
+A bare `curl -sS` exits 0 on 401/403/404/500. The `%{http_code}` write-out
+plus `test` fails the glance if the route is unregistered or the token is
+wrong.
 
 ### Later operator glances (Epic 3 — not automated yet)
 

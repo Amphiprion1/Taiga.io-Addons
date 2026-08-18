@@ -6,6 +6,7 @@ import ast
 import os
 import shutil
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -24,17 +25,10 @@ SERVICES_PY = STUB_APP / "services.py"
 COMPOSE_DIR = os.environ.get("TAIGA_DOCKER")
 SUBPROCESS_TIMEOUT = 60
 
-ALLOWED_STUB_APP_ENTRIES = {
-    "__init__.py",
-    "apps.py",
-    "models.py",
-    "api.py",
-    "serializers.py",
-    "validators.py",
-    "permissions.py",
-    "services.py",
-    "migrations",
-}
+_TESTS = Path(__file__).resolve().parent
+if str(_TESTS) not in sys.path:
+    sys.path.insert(0, str(_TESTS))
+from _addon_package import ALLOWED_STUB_APP_ENTRIES  # noqa: E402
 
 EXPECTED_TAIGA_IMPORTS: dict[str, set[str]] = {
     "taiga.base": {"routers", "filters"},
@@ -241,13 +235,36 @@ def _stub_all_modules() -> set[str]:
     return modules
 
 
+def _collect_used_attrs_on_taiga_imports(root: Path) -> dict[str, set[str]]:
+    used: dict[str, set[str]] = {}
+    for path in root.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(_read(path))
+        alias_to_full: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if node.module != "taiga" and not node.module.startswith("taiga."):
+                continue
+            for alias in node.names:
+                local = alias.asname or alias.name
+                alias_to_full[local] = f"{node.module}.{alias.name}"
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+                continue
+            full = alias_to_full.get(node.value.id)
+            if full:
+                used.setdefault(full, set()).add(node.attr)
+    return used
+
+
 # --- A. Static / AST ------------------------------------------------------------
 
 
 def test_package_file_allowlist():
     entries = {p.name for p in STUB_APP.iterdir() if p.name != "__pycache__"}
     assert entries == ALLOWED_STUB_APP_ENTRIES
-    assert not (STUB_APP / "urls.py").exists()
 
 
 def test_services_imports_no_taiga():
@@ -315,27 +332,54 @@ def test_api_viewset_shape_and_list_checks_permissions():
     assert _const(assigns["filter_fields"]) == ("project",)
     assert _const(assigns["bulk_update_param"]) == "bulk_components"
     assert _const(assigns["bulk_update_perm"]) == "change_component"
-    assert _attr_path(assigns["bulk_update_order_action"]).endswith(
-        "bulk_update_component_order"
-    )
+    action = assigns["bulk_update_order_action"]
+    assert isinstance(action, ast.Name), "reorder wrapper must live in api.py"
+    assert action.id == "bulk_update_component_order"
+    extra = set(assigns) - {
+        "model",
+        "serializer_class",
+        "validator_class",
+        "permission_classes",
+        "filter_backends",
+        "filter_fields",
+        "bulk_update_param",
+        "bulk_update_perm",
+        "bulk_update_order_action",
+    }
+    assert extra == set(), extra
+
+    wrapper = None
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "bulk_update_component_order":
+            wrapper = node
+    assert wrapper is not None
+    assert _arg_names(wrapper) == ["project", "user", "data"]
 
     list_fn = _method(cls, "list")
     assert list_fn is not None
     called = False
+    returns_super_list = False
     for node in ast.walk(list_fn):
-        if not isinstance(node, ast.Call):
-            continue
-        if not _attr_path(node.func).endswith("check_permissions"):
-            continue
-        literals = []
-        for arg in node.args:
-            try:
-                literals.append(_const(arg))
-            except Exception:
-                continue
-        if "list" in literals:
-            called = True
+        if isinstance(node, ast.Call) and _attr_path(node.func).endswith(
+            "check_permissions"
+        ):
+            literals = []
+            for arg in node.args:
+                try:
+                    literals.append(_const(arg))
+                except Exception:
+                    continue
+            if "list" in literals:
+                called = True
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Call):
+            func = node.value.func
+            if isinstance(func, ast.Attribute) and func.attr == "list":
+                if isinstance(func.value, ast.Call):
+                    callee = func.value.func
+                    if isinstance(callee, ast.Name) and callee.id == "super":
+                        returns_super_list = True
     assert called, "list() must call check_permissions(..., 'list', ...)"
+    assert returns_super_list, "list() must return super().list(...)"
 
 
 def test_apps_ready_registers_slashless_components_router():
@@ -397,11 +441,11 @@ def test_serializer_is_light_with_project_id_attr():
     for field_name in ("id", "name", "order"):
         call = assigns[field_name]
         assert isinstance(call, ast.Call)
-        assert _attr_path(call.func).endswith("Field")
+        assert _attr_path(call.func).rsplit(".", 1)[-1] == "Field"
         assert all(kw.arg != "attr" for kw in call.keywords)
     project = assigns["project"]
     assert isinstance(project, ast.Call)
-    assert _attr_path(project.func).endswith("Field")
+    assert _attr_path(project.func).rsplit(".", 1)[-1] == "Field"
     attr = None
     for keyword in project.keywords:
         if keyword.arg == "attr":
@@ -435,6 +479,18 @@ def test_taiga_stub_matches_addon_imports_exactly():
     extras = _stub_all_modules() - allowed
     assert extras == set(), f"stub extra modules {extras}"
 
+    used_attrs = _collect_used_attrs_on_taiga_imports(STUB_APP)
+    for module in name_modules:
+        try:
+            defined = _stub_defined_names(module)
+        except AssertionError:
+            continue
+        expected = used_attrs.get(module, set())
+        extra_syms = defined - expected
+        missing_syms = expected - defined
+        assert extra_syms == set(), f"{module} stub extra symbols {extra_syms}"
+        assert missing_syms == set(), f"{module} stub missing {missing_syms}"
+
 
 def test_addon_does_not_reference_taiga_stub():
     for path in STUB_APP.rglob("*.py"):
@@ -467,25 +523,22 @@ def _overlay_exec_available() -> bool:
 
 
 def _compose_exec_python(code: str) -> subprocess.CompletedProcess[str]:
-    try:
-        return subprocess.run(
-            [
-                "docker",
-                "compose",
-                "exec",
-                "-T",
-                "taiga-back",
-                "/opt/venv/bin/python",
-                "-c",
-                code,
-            ],
-            capture_output=True,
-            text=True,
-            cwd=COMPOSE_DIR,
-            timeout=SUBPROCESS_TIMEOUT,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        pytest.skip(f"compose exec taiga-back unavailable: {exc}")
+    return subprocess.run(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "taiga-back",
+            "/opt/venv/bin/python",
+            "-c",
+            code,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=COMPOSE_DIR,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
 
 
 def _require_overlay_stack() -> None:
@@ -520,8 +573,6 @@ def test_live_anonymous_catalog_list_is_401():
             print("STATUS:200")
         except urllib.error.HTTPError as exc:
             print(f"STATUS:{exc.code}")
-        except Exception as exc:
-            print(f"ERROR:{type(exc).__name__}:{exc}")
         """
     ).strip()
     proc = _compose_exec_python(code)
@@ -529,8 +580,6 @@ def test_live_anonymous_catalog_list_is_401():
     lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
     assert lines, proc.stdout or proc.stderr
     last = lines[-1]
-    if last.startswith("ERROR:"):
-        pytest.skip(f"live catalog HTTP path unavailable: {last}")
     assert last == "STATUS:401", proc.stdout
 
 
@@ -540,6 +589,7 @@ def test_live_catalog_member_admin_and_delete_cascade():
         """
         import json
         import os
+        import secrets
         import uuid
         os.environ.setdefault("DJANGO_SETTINGS_MODULE", "settings.overlay")
         import django
@@ -549,6 +599,7 @@ def test_live_catalog_member_admin_and_delete_cascade():
         from django.conf import settings
         from taiga.projects.models import Membership, Project
         from taiga.users.models import User
+        from taiga.userstories.models import UserStory
         from taiga_contrib_components.models import Assignment, Component
 
         host = getattr(settings, "TAIGA_SITES_DOMAIN", None) or "localhost"
@@ -562,10 +613,11 @@ def test_live_catalog_member_admin_and_delete_cascade():
             raise SystemExit(0)
 
         suffix = uuid.uuid4().hex[:8]
+        password = secrets.token_urlsafe(24)
         created_user_ids = []
         created_component_ids = []
         created_assignment_ids = []
-        created_story_id = None
+        created_story_ids = []
 
         def make_user(prefix, is_admin):
             user = User.objects.create(
@@ -574,7 +626,7 @@ def test_live_catalog_member_admin_and_delete_cascade():
                 full_name=prefix,
                 is_active=True,
             )
-            user.set_password("catalog-22")
+            user.set_password(password)
             user.save()
             created_user_ids.append(user.id)
             Membership.objects.create(
@@ -588,7 +640,7 @@ def test_live_catalog_member_admin_and_delete_cascade():
 
         def auth_header(username):
             payload = json.dumps(
-                {"type": "normal", "username": username, "password": "catalog-22"}
+                {"type": "normal", "username": username, "password": password}
             ).encode()
             req = urllib.request.Request(
                 "http://127.0.0.1:8000/api/v1/auth",
@@ -669,46 +721,49 @@ def test_live_catalog_member_admin_and_delete_cascade():
                 )
                 print(f"ADMIN_DUP:{status}")
                 if other is not None:
-                    status, _ = call(
+                    status, other_body = call(
                         "POST",
                         base,
                         admin_tok,
                         {"project": other.id, "name": f"xproj-{suffix}"},
                     )
                     print(f"ADMIN_OTHER:{status}")
+                    if (
+                        status == 201
+                        and isinstance(other_body, dict)
+                        and other_body.get("id")
+                    ):
+                        created_component_ids.append(other_body["id"])
                 else:
                     print("ADMIN_OTHER:SKIP")
 
-                try:
-                    from taiga.userstories.models import UserStory
-                    story = UserStory.objects.filter(project=project).order_by("id").first()
-                    if story is None:
-                        print("DELETE_CASCADE:SKIP")
-                    else:
-                        created_story_id = story.id
-                        doomed = Component.objects.create(
-                            project=project, name=f"Doomed-{suffix}"
-                        )
-                        created_component_ids.append(doomed.id)
-                        assignment = Assignment.objects.create(
-                            userstory=story, component=doomed
-                        )
-                        created_assignment_ids.append(assignment.id)
-                        status, _ = call("DELETE", f"{base}/{doomed.id}", admin_tok)
-                        gone = not Assignment.objects.filter(id=assignment.id).exists()
-                        story_ok = UserStory.objects.filter(pk=story.id).exists()
-                        print(f"DELETE_CASCADE:{status}:{int(gone)}:{int(story_ok)}")
-                except Exception as exc:
-                    print(f"DELETE_CASCADE:SKIP:{type(exc).__name__}")
+                story = UserStory.objects.filter(project=project).order_by("id").first()
+                if story is None:
+                    story = UserStory.objects.create(
+                        project=project, subject=f"c22-{suffix}"
+                    )
+                    created_story_ids.append(story.id)
+                doomed = Component.objects.create(
+                    project=project, name=f"Doomed-{suffix}"
+                )
+                created_component_ids.append(doomed.id)
+                assignment = Assignment.objects.create(
+                    userstory=story, component=doomed
+                )
+                created_assignment_ids.append(assignment.id)
+                status, _ = call("DELETE", f"{base}/{doomed.id}", admin_tok)
+                gone = not Assignment.objects.filter(id=assignment.id).exists()
+                story_ok = UserStory.objects.filter(pk=story.id).exists()
+                print(f"DELETE_CASCADE:{status}:{int(gone)}:{int(story_ok)}")
             else:
                 print("ADMIN_POST_BODY_MISSING")
-        except Exception as exc:
-            print(f"ERROR:{type(exc).__name__}:{exc}")
         finally:
             Assignment.objects.filter(id__in=created_assignment_ids).delete()
             Component.objects.filter(id__in=created_component_ids).delete()
             Membership.objects.filter(user_id__in=created_user_ids).delete()
             User.objects.filter(id__in=created_user_ids).delete()
+            if created_story_ids:
+                UserStory.objects.filter(id__in=created_story_ids).delete()
         """
     ).strip()
     proc = _compose_exec_python(code)
@@ -716,9 +771,6 @@ def test_live_catalog_member_admin_and_delete_cascade():
     out = proc.stdout
     if "SKIP:no-project" in out or "SKIP:no-role" in out:
         pytest.skip(out.strip().splitlines()[-1])
-    if "ERROR:" in out:
-        last = [ln for ln in out.splitlines() if ln.startswith("ERROR:")][-1]
-        pytest.skip(f"live catalog HTTP setup unavailable: {last}")
     assert "MEMBER_GET:200" in out, out
     assert "MEMBER_POST:403" in out, out
     assert "MEMBER_PATCH:403" in out, out
@@ -728,5 +780,4 @@ def test_live_catalog_member_admin_and_delete_cascade():
     assert "ADMIN_DUP:400" in out, out
     if "ADMIN_OTHER:SKIP" not in out:
         assert "ADMIN_OTHER:403" in out, out
-    if "DELETE_CASCADE:SKIP" not in out:
-        assert "DELETE_CASCADE:204:1:1" in out, out
+    assert "DELETE_CASCADE:204:1:1" in out, out
